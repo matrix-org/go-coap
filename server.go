@@ -147,6 +147,12 @@ type Server struct {
 	// Set maximal block size of payload that will be send in fragment
 	BlockWiseTransferSzx *BlockWiseSzx
 
+	// is encryption on or off?
+	Encryption bool
+
+	// psk if any
+	Psk string
+
 	TCPReadBufferSize  int
 	TCPWriteBufferSize int
 
@@ -577,37 +583,39 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			srv.sessionUDPMapLock.Unlock()
 		}
 
-		ns := session.GetNoiseState()
-		connUDP.SetNoiseState(ns)
+		if srv.Encryption {
+			ns := session.GetNoiseState()
+			connUDP.SetNoiseState(ns)
 
-		// XXX: ideally we'd decrypt in connUDP.ReadFromSessionUDP, but we don't
-		// know which session we're part of at that point. So instead we decrypt here.
-		// We might want to call through to Conn for this?
+			// XXX: ideally we'd decrypt in connUDP.ReadFromSessionUDP, but we don't
+			// know which session we're part of at that point. So instead we decrypt here.
+			// We might want to call through to Conn for this?
 
-		hs := ns.Hs
-		if ns.Handshakes < 2 {
-			//log.Printf("handshake decrypting %d bytes with %p: %v", n, hs, m)
-			m, ns.Cs0, ns.Cs1, err = hs.ReadMessage(nil, m)
-			if err != nil {
-				return err
-			}
-			//log.Printf("handshake decrypted %d bytes with %p: %v", len(m), hs, m)
-			//log.Printf("handshake decrypted %d->%d bytes with %p", n, len(m), hs)
-			ns.Handshakes++
-		} else {
-			//log.Printf("decrypting %d bytes with %p: %v", n, hs, m)
-			var cs *noise.CipherState
-			if ns.Initiator {
-				cs = ns.Cs1
+			hs := ns.Hs
+			if ns.Handshakes < 2 {
+				//log.Printf("handshake decrypting %d bytes with %p: %v", n, hs, m)
+				m, ns.Cs0, ns.Cs1, err = hs.ReadMessage(nil, m)
+				if err != nil {
+					return err
+				}
+				//log.Printf("handshake decrypted %d bytes with %p: %v", len(m), hs, m)
+				//log.Printf("handshake decrypted %d->%d bytes with %p", n, len(m), hs)
+				ns.Handshakes++
 			} else {
-				cs = ns.Cs0
+				//log.Printf("decrypting %d bytes with %p: %v", n, hs, m)
+				var cs *noise.CipherState
+				if ns.Initiator {
+					cs = ns.Cs1
+				} else {
+					cs = ns.Cs0
+				}
+				m, err = cs.Decrypt(nil, nil, m)
+				if err != nil {
+					return err
+				}
+				//log.Printf("decrypted %d bytes with %p: %v", len(m), hs, m)
+				//log.Printf("decrypted %d->%d bytes with %p", n, len(m), hs)
 			}
-			m, err = cs.Decrypt(nil, nil, m)
-			if err != nil {
-				return err
-			}
-			//log.Printf("decrypted %d bytes with %p: %v", len(m), hs, m)
-			//log.Printf("decrypted %d->%d bytes with %p", n, len(m), hs)
 		}
 
 		msg, err := ParseDgramMessage(m)

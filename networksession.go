@@ -97,24 +97,26 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 		mapPairs:       make(map[[MaxTokenSize]byte]map[uint16](*sessionResp)),
 	}
 
-	// set up noise initiator or receiver
-	//cs := noise.NewCipherSuite(noise.DH25519, noise.CipherAESGCM, noise.HashSHA512)
-	cs := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
-	rng := new(RandomInc)
+	if srv.Encryption {
+		// set up noise initiator or receiver
+		//cs := noise.NewCipherSuite(noise.DH25519, noise.CipherAESGCM, noise.HashSHA512)
+		cs := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
+		rng := new(RandomInc)
 
-	hs, _ := noise.NewHandshakeState(noise.Config{
-		CipherSuite: cs,
-		Random:      rng,
-		Pattern:     noise.HandshakeNN,
-		Initiator:   initiator,
-	})
+		hs, _ := noise.NewHandshakeState(noise.Config{
+			CipherSuite: cs,
+			Random:      rng,
+			Pattern:     noise.HandshakeNN,
+			Initiator:   initiator,
+		})
 
-	//log.Printf("newSessionUDP %p with HS %p", s, hs)
-	//debug.PrintStack()
+		//log.Printf("newSessionUDP %p with HS %p", s, hs)
+		//debug.PrintStack()
 
-	s.ns = &NoiseState{
-		Hs:        hs,
-		Initiator: initiator,
+		s.ns = &NoiseState{
+			Hs:        hs,
+			Initiator: initiator,
+		}
 	}
 
 	return s, nil

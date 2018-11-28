@@ -84,6 +84,7 @@ func RunLocalServerUDPWithHandler(lnet, laddr string, BlockWiseTransfer bool, Bl
 		Handler:              handler,
 		BlockWiseTransfer:    &BlockWiseTransfer,
 		BlockWiseTransferSzx: &BlockWiseTransferSzx,
+		Encryption:           true,
 	}
 
 	waitLock := sync.Mutex{}
@@ -192,6 +193,7 @@ func testServingTCPWithMsgWithObserver(t *testing.T, net string, BlockWiseTransf
 		BlockWiseTransfer:    &BlockWiseTransfer,
 		BlockWiseTransferSzx: &BlockWiseTransferSzx,
 		MaxMessageSize:       ^uint32(0),
+		Encryption:           true,
 	}
 	var fin chan error
 	switch net {

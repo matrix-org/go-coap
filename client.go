@@ -35,6 +35,9 @@ type Client struct {
 
 	BlockWiseTransfer    *bool         // Use blockWise transfer for transfer payload (default for UDP it's enabled, for TCP it's disable)
 	BlockWiseTransferSzx *BlockWiseSzx // Set maximal block size of payload that will be send in fragment
+
+	Encryption bool
+	Psk        string
 }
 
 func (c *Client) readTimeout() time.Duration {
@@ -179,7 +182,9 @@ func (c *Client) Dial(address string) (clientConn *ClientConn, err error) {
 				}
 				return session, nil
 			},
-			Handler: c.Handler,
+			Handler:    c.Handler,
+			Encryption: c.Encryption,
+			Psk:        c.Psk,
 		},
 		shutdownSync: make(chan error),
 		multicast:    multicast,

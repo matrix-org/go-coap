@@ -208,33 +208,38 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 		}
 
 		var msg []byte
-		ns := conn.ns
-		if ns.Handshakes < 2 {
-			//log.Printf("handshake encrypting %d bytes with %p: %v", len(buf.Bytes()), ns.Hs, buf.Bytes())
-			res, cs0, cs1, err := ns.Hs.WriteMessage(nil, buf.Bytes())
-			if err != nil {
-				return err
-			}
 
-			ns.Cs0 = cs0
-			ns.Cs1 = cs1
+		if srv.Encryption {
+			ns := conn.ns
+			if ns.Handshakes < 2 {
+				//log.Printf("handshake encrypting %d bytes with %p: %v", len(buf.Bytes()), ns.Hs, buf.Bytes())
+				res, cs0, cs1, err := ns.Hs.WriteMessage(nil, buf.Bytes())
+				if err != nil {
+					return err
+				}
 
-			msg = res
-			//log.Printf("handshake encrypted %d bytes with %p: %v", len(msg), ns.Hs, msg)
-			log.Printf("handshake encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
-			ns.Handshakes++
-		} else {
-			//log.Printf("encrypting %d bytes with %p: %v", len(buf.Bytes()), ns.Hs, buf.Bytes())
-			var cs *noise.CipherState
-			if conn.ns.Initiator {
-				cs = ns.Cs0
+				ns.Cs0 = cs0
+				ns.Cs1 = cs1
+
+				msg = res
+				//log.Printf("handshake encrypted %d bytes with %p: %v", len(msg), ns.Hs, msg)
+				//log.Printf("handshake encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
+				ns.Handshakes++
 			} else {
-				cs = ns.Cs1
+				//log.Printf("encrypting %d bytes with %p: %v", len(buf.Bytes()), ns.Hs, buf.Bytes())
+				var cs *noise.CipherState
+				if conn.ns.Initiator {
+					cs = ns.Cs0
+				} else {
+					cs = ns.Cs1
+				}
+				res := cs.Encrypt(nil, nil, buf.Bytes())
+				msg = res
+				//log.Printf("encrypted %d bytes with %p: %v", len(msg), ns.Hs, msg)
+				//log.Printf("encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
 			}
-			res := cs.Encrypt(nil, nil, buf.Bytes())
-			msg = res
-			//log.Printf("encrypted %d bytes with %p: %v", len(msg), ns.Hs, msg)
-			log.Printf("encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
+		} else {
+			msg = buf.Bytes()
 		}
 
 		conn.connection.SetWriteDeadline(time.Now().Add(writeTimeout))
