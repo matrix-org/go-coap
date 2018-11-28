@@ -221,7 +221,7 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 
 			msg = res
 			//log.Printf("handshake encrypted %d bytes with %p: %v", len(msg), ns.Hs, msg)
-			//log.Printf("handshake encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
+			log.Printf("handshake encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
 			ns.Handshakes++
 		} else {
 			//log.Printf("encrypting %d bytes with %p: %v", len(buf.Bytes()), ns.Hs, buf.Bytes())
@@ -234,7 +234,7 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 			res := cs.Encrypt(nil, nil, buf.Bytes())
 			msg = res
 			//log.Printf("encrypted %d bytes with %p: %v", len(msg), ns.Hs, msg)
-			//log.Printf("encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
+			log.Printf("encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
 		}
 
 		conn.connection.SetWriteDeadline(time.Now().Add(writeTimeout))
@@ -260,10 +260,7 @@ func (r *RandomInc) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func setupNoise(c *net.UDPConn, initiator bool) {
-}
-
-func newConnectionUDP(c *net.UDPConn, srv *Server, initiator bool) Conn {
+func newConnectionUDP(c *net.UDPConn, srv *Server) Conn {
 
 	connection := &connUDP{connBase: connBase{writeChan: make(chan writeReq, 10000), closeChan: make(chan bool), finChan: make(chan bool), closed: 0}, connection: c}
 

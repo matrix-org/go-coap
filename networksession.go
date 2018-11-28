@@ -98,7 +98,8 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 	}
 
 	// set up noise initiator or receiver
-	cs := noise.NewCipherSuite(noise.DH25519, noise.CipherAESGCM, noise.HashSHA512)
+	//cs := noise.NewCipherSuite(noise.DH25519, noise.CipherAESGCM, noise.HashSHA512)
+	cs := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
 	rng := new(RandomInc)
 
 	hs, _ := noise.NewHandshakeState(noise.Config{
@@ -113,9 +114,6 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 
 	s.ns = &NoiseState{
 		Hs:			hs,
-		Handshakes: 0,
-		Cs0:		nil,
-		Cs1:		nil,
 		Initiator:  initiator,
 	}
 

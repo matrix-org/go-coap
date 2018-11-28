@@ -534,7 +534,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 	rtimeout := srv.readTimeout()
 	// deadline is not used here
 
-	connUDP := newConnectionUDP(conn, srv, false).(*connUDP)
+	connUDP := newConnectionUDP(conn, srv).(*connUDP)
 
 	for {
 		m := make([]byte, ^uint16(0))

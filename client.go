@@ -200,7 +200,7 @@ func (c *Client) Dial(address string) (clientConn *ClientConn, err error) {
 	case *net.UDPConn:
 		// WriteMsgUDP returns error when addr is filled in SessionUDPData for connected socket
 		setUDPSocketOptions(clientConn.srv.Conn.(*net.UDPConn))
-		conn := newConnectionUDP(clientConn.srv.Conn.(*net.UDPConn), clientConn.srv, true)
+		conn := newConnectionUDP(clientConn.srv.Conn.(*net.UDPConn), clientConn.srv)
 		session, err := newSessionUDP(conn, clientConn.srv, sessionUDPData, true)
 		if err != nil {
 			return nil, err
