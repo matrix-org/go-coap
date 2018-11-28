@@ -1,13 +1,13 @@
 package coap
 
 import (
+	"github.com/flynn/noise"
 	"log"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
-	"github.com/flynn/noise"
-//	"runtime/debug"
+	//	"runtime/debug"
 )
 
 // A networkSession interface is used by an COAP handler to
@@ -113,8 +113,8 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 	//debug.PrintStack()
 
 	s.ns = &NoiseState{
-		Hs:			hs,
-		Initiator:  initiator,
+		Hs:        hs,
+		Initiator: initiator,
 	}
 
 	return s, nil
@@ -156,11 +156,11 @@ type sessionResp struct {
 }
 
 type NoiseState struct {
-	Hs            *noise.HandshakeState
-	Handshakes    int
-	Cs0		      *noise.CipherState // for encrypting
-	Cs1		      *noise.CipherState // for decrypting
-	Initiator     bool
+	Hs         *noise.HandshakeState
+	Handshakes int
+	Cs0        *noise.CipherState // for encrypting
+	Cs1        *noise.CipherState // for decrypting
+	Initiator  bool
 }
 
 type sessionBase struct {
@@ -173,10 +173,10 @@ type sessionBase struct {
 	blockWiseTransfer    bool
 	blockWiseTransferSzx uint32 //BlockWiseSzx
 
-	ns            *NoiseState
+	ns *NoiseState
 }
 
-func  (s *sessionBase) GetNoiseState() *NoiseState {
+func (s *sessionBase) GetNoiseState() *NoiseState {
 	return s.ns
 }
 

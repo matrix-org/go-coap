@@ -2,11 +2,11 @@ package coap
 
 import (
 	"bytes"
+	"github.com/flynn/noise"
 	"log"
 	"net"
 	"sync/atomic"
 	"time"
-	"github.com/flynn/noise"
 	// "runtime/debug"
 )
 
@@ -79,7 +79,7 @@ type connBase struct {
 	closeChan chan bool
 	finChan   chan bool
 	closed    int32
-	ns		  *NoiseState
+	ns        *NoiseState
 }
 
 func (conn *connBase) SetNoiseState(ns *NoiseState) {
@@ -226,7 +226,7 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 		} else {
 			//log.Printf("encrypting %d bytes with %p: %v", len(buf.Bytes()), ns.Hs, buf.Bytes())
 			var cs *noise.CipherState
-			if (conn.ns.Initiator) {
+			if conn.ns.Initiator {
 				cs = ns.Cs0
 			} else {
 				cs = ns.Cs1

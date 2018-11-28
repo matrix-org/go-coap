@@ -597,7 +597,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 		} else {
 			//log.Printf("decrypting %d bytes with %p: %v", n, hs, m)
 			var cs *noise.CipherState
-			if (ns.Initiator) {
+			if ns.Initiator {
 				cs = ns.Cs1
 			} else {
 				cs = ns.Cs0
