@@ -37,7 +37,7 @@ type Client struct {
 	BlockWiseTransferSzx *BlockWiseSzx // Set maximal block size of payload that will be send in fragment
 
 	Encryption bool
-	Psk        string
+	Psk        []byte
 }
 
 func (c *Client) readTimeout() time.Duration {

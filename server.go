@@ -151,7 +151,7 @@ type Server struct {
 	Encryption bool
 
 	// psk if any
-	Psk string
+	Psk []byte
 
 	TCPReadBufferSize  int
 	TCPWriteBufferSize int

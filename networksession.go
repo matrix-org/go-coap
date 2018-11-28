@@ -104,10 +104,11 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 		rng := new(RandomInc)
 
 		hs, _ := noise.NewHandshakeState(noise.Config{
-			CipherSuite: cs,
-			Random:      rng,
-			Pattern:     noise.HandshakeNN,
-			Initiator:   initiator,
+			CipherSuite:  cs,
+			Random:       rng,
+			Pattern:      noise.HandshakeNN,
+			Initiator:    initiator,
+			PresharedKey: srv.Psk,
 		})
 
 		//log.Printf("newSessionUDP %p with HS %p", s, hs)
