@@ -4,6 +4,7 @@ package coap
 import (
 	"bufio"
 	"crypto/tls"
+	"log"
 	"net"
 	"reflect"
 	"strconv"
@@ -43,6 +44,11 @@ const DefaultSecurePort = 5684
 // Handler is implemented by any value that implements ServeCOAP.
 type Handler interface {
 	ServeCOAP(w ResponseWriter, r *Request)
+}
+
+type Compressor interface {
+	CompressPayload(j []byte) ([]byte, error)
+	DecompressPayload(j []byte) ([]byte, error)
 }
 
 // The HandlerFunc type is an adapter to allow the use of
@@ -146,6 +152,9 @@ type Server struct {
 	BlockWiseTransfer *bool
 	// Set maximal block size of payload that will be send in fragment
 	BlockWiseTransferSzx *BlockWiseSzx
+
+	// Used to compress packets
+	Compressor Compressor
 
 	// is encryption on or off?
 	Encryption bool
@@ -618,10 +627,24 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			}
 		}
 
-		msg, err := ParseDgramMessage(m)
+		var decompressed []byte
+		if srv.Compressor != nil {
+			decompressed, err = srv.Compressor.DecompressPayload(m)
+			if err != nil {
+				log.Printf("Failed to decompress payload: %v", err)
+				continue
+			}
+		} else {
+			decompressed = m
+		}
+
+		msg, err := ParseDgramMessage(decompressed)
 		if err != nil {
 			continue
 		}
+
+		log.Printf("Decompressed msg %s: %d -> %d bytes", msg.Token(), len(m), len(decompressed))
+
 		srv.spawnWorker(&Request{Msg: msg, Client: &ClientCommander{session}})
 	}
 }
