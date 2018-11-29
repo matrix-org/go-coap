@@ -109,7 +109,7 @@ func (conn *connBase) sendFinish(timeout time.Duration) {
 	select {
 	case conn.finChan <- true:
 	case <-time.After(timeout):
-		log.Fatal("Client cannot recv start: Timeout")
+		log.Println("Client cannot recv start: Timeout")
 	}
 }
 

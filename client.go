@@ -152,7 +152,7 @@ func (c *Client) Dial(address string) (clientConn *ClientConn, err error) {
 				select {
 				case sync <- true:
 				case <-time.After(timeout):
-					log.Fatal("Client cannot send start: Timeout")
+					log.Println("Client cannot send start: Timeout")
 				}
 			},
 			NotifySessionEndFunc: func(s *ClientCommander, err error) {
@@ -231,14 +231,14 @@ func (c *Client) Dial(address string) (clientConn *ClientConn, err error) {
 		select {
 		case clientConn.shutdownSync <- err:
 		case <-time.After(timeout):
-			log.Fatal("Client cannot send shutdown: Timeout")
+			log.Println("Client cannot send shutdown: Timeout")
 		}
 	}()
 
 	select {
 	case <-sync:
 	case <-time.After(c.syncTimeout()):
-		log.Fatal("Client cannot recv start: Timeout")
+		log.Println("Client cannot recv start: Timeout")
 	}
 
 	clientConn.client = c
@@ -360,7 +360,7 @@ func (co *ClientConn) Close() error {
 	select {
 	case <-co.shutdownSync:
 	case <-time.After(co.client.syncTimeout()):
-		log.Fatal("Client cannot recv shutdown: Timeout")
+		log.Println("Client cannot recv shutdown: Timeout")
 	}
 	return nil
 }
