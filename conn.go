@@ -2,11 +2,12 @@ package coap
 
 import (
 	"bytes"
-	"github.com/flynn/noise"
 	"log"
 	"net"
 	"sync/atomic"
 	"time"
+
+	"github.com/flynn/noise"
 	// "runtime/debug"
 )
 
@@ -207,13 +208,24 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 			return err
 		}
 
+		var compressed []byte
+		if srv.Compressor != nil {
+			compressed, err = srv.Compressor.CompressPayload(buf.Bytes())
+			if err != nil {
+				return err
+			}
+			log.Printf("Compressed packet: %d -> %d bytes", len(buf.Bytes()), len(compressed))
+		} else {
+			compressed = buf.Bytes()
+		}
+
 		var msg []byte
 
 		if srv.Encryption {
 			ns := conn.ns
 			if ns.Handshakes < 2 {
 				//log.Printf("handshake encrypting %d bytes with %p: %v", len(buf.Bytes()), ns.Hs, buf.Bytes())
-				res, cs0, cs1, err := ns.Hs.WriteMessage(nil, buf.Bytes())
+				res, cs0, cs1, err := ns.Hs.WriteMessage(nil, compressed)
 				if err != nil {
 					return err
 				}
@@ -233,13 +245,13 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 				} else {
 					cs = ns.Cs1
 				}
-				res := cs.Encrypt(nil, nil, buf.Bytes())
+				res := cs.Encrypt(nil, nil, compressed)
 				msg = res
 				//log.Printf("encrypted %d bytes with %p: %v", len(msg), ns.Hs, msg)
 				//log.Printf("encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
 			}
 		} else {
-			msg = buf.Bytes()
+			msg = compressed
 		}
 
 		conn.connection.SetWriteDeadline(time.Now().Add(writeTimeout))

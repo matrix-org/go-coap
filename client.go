@@ -37,6 +37,7 @@ type Client struct {
 	BlockWiseTransferSzx *BlockWiseSzx // Set maximal block size of payload that will be send in fragment
 
 	Encryption bool
+	Compressor Compressor
 	Psk        []byte
 }
 
@@ -185,6 +186,7 @@ func (c *Client) Dial(address string) (clientConn *ClientConn, err error) {
 			Handler:    c.Handler,
 			Encryption: c.Encryption,
 			Psk:        c.Psk,
+			Compressor: c.Compressor,
 		},
 		shutdownSync: make(chan error),
 		multicast:    multicast,
