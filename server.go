@@ -594,7 +594,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 
 		if srv.Encryption {
 			ns := session.GetNoiseState()
-			connUDP.SetNoiseState(ns)
+			// connUDP.SetNoiseState(ns)
 
 			// XXX: ideally we'd decrypt in connUDP.ReadFromSessionUDP, but we don't
 			// know which session we're part of at that point. So instead we decrypt here.
@@ -602,16 +602,17 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 
 			hs := ns.Hs
 			if ns.Handshakes < 2 {
-				//log.Printf("handshake decrypting %d bytes with %p: %v", n, hs, m)
+				// log.Printf("handshake decrypting %d bytes with hs %p: %v", n, hs, m)
 				m, ns.Cs0, ns.Cs1, err = hs.ReadMessage(nil, m)
 				if err != nil {
+					log.Printf("handshake decryption failed: %v", err)
 					return err
 				}
-				//log.Printf("handshake decrypted %d bytes with %p: %v", len(m), hs, m)
+				// log.Printf("handshake decrypted %d bytes with hs %p: %v", len(m), hs, m)
 				//log.Printf("handshake decrypted %d->%d bytes with %p", n, len(m), hs)
 				ns.Handshakes++
 			} else {
-				//log.Printf("decrypting %d bytes with %p: %v", n, hs, m)
+				// log.Printf("decrypting %d bytes with hs %p: %v", n, hs, m)
 				var cs *noise.CipherState
 				if ns.Initiator {
 					cs = ns.Cs1
@@ -620,9 +621,10 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 				}
 				m, err = cs.Decrypt(nil, nil, m)
 				if err != nil {
+					log.Printf("Decryption failed: %v", err)
 					return err
 				}
-				//log.Printf("decrypted %d bytes with %p: %v", len(m), hs, m)
+				// log.Printf("decrypted %d bytes with hs %p: %v", len(m), hs, m)
 				//log.Printf("decrypted %d->%d bytes with %p", n, len(m), hs)
 			}
 		}
@@ -643,7 +645,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			continue
 		}
 
-		log.Printf("Decompressed msg %s: %d -> %d bytes", msg.Token(), len(m), len(decompressed))
+		// log.Printf("Decompressed msg %s: %d -> %d bytes", msg.Token(), len(m), len(decompressed))
 
 		srv.spawnWorker(&Request{Msg: msg, Client: &ClientCommander{session}})
 	}

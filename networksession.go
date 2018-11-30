@@ -99,8 +99,8 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 
 	if srv.Encryption {
 		// set up noise initiator or receiver
-		//cs := noise.NewCipherSuite(noise.DH25519, noise.CipherAESGCM, noise.HashSHA512)
-		cs := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
+		cs := noise.NewCipherSuite(noise.DH25519, noise.CipherAESGCM, noise.HashSHA512)
+		// cs := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
 		rng := new(RandomInc)
 
 		hs, _ := noise.NewHandshakeState(noise.Config{
@@ -111,13 +111,14 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 			PresharedKey: srv.Psk,
 		})
 
-		//log.Printf("newSessionUDP %p with HS %p", s, hs)
 		//debug.PrintStack()
 
 		s.ns = &NoiseState{
 			Hs:        hs,
 			Initiator: initiator,
 		}
+
+		//log.Printf("newSessionUDP %p with NS %p (hs %p) and initiator %v", s, s.ns, s.ns.Hs, initiator)
 	}
 
 	return s, nil
@@ -497,7 +498,7 @@ func (s *sessionUDP) writeTimeout(m Message, timeout time.Duration) error {
 	if err := validateMsg(m); err != nil {
 		return err
 	}
-	return s.connection.write(&writeReqUDP{writeReqBase{req: m, respChan: make(chan error, 1)}, s.sessionUDPData}, timeout)
+	return s.connection.write(&writeReqUDP{writeReqBase{req: m, respChan: make(chan error, 1)}, s.sessionUDPData, s.ns}, timeout)
 }
 
 func (s *sessionTCP) handlePairMsg(w ResponseWriter, r *Request) bool {
