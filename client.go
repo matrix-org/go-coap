@@ -177,7 +177,6 @@ func (c *Client) Dial(address string) (clientConn *ClientConn, err error) {
 				if err != nil {
 					return nil, err
 				}
-				connection.SetNoiseState(session.GetNoiseState())
 				if session.blockWiseEnabled() {
 					return &blockWiseSession{networkSession: session}, nil
 				}
@@ -212,10 +211,6 @@ func (c *Client) Dial(address string) (clientConn *ClientConn, err error) {
 		if err != nil {
 			return nil, err
 		}
-
-		// we have to explicitly set the right conn to the HS of the session we just created
-		conn.SetNoiseState(session.GetNoiseState())
-
 		if session.blockWiseEnabled() {
 			clientConn.commander.networkSession = &blockWiseSession{networkSession: session}
 		} else {
