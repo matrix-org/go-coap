@@ -4,6 +4,7 @@ package coap
 import (
 	"bufio"
 	"crypto/tls"
+	"log"
 	"net"
 	"reflect"
 	"strconv"
@@ -43,6 +44,11 @@ const DefaultSecurePort = 5684
 // Handler is implemented by any value that implements ServeCOAP.
 type Handler interface {
 	ServeCOAP(w ResponseWriter, r *Request)
+}
+
+type Compressor interface {
+	CompressPayload(j []byte) ([]byte, error)
+	DecompressPayload(j []byte) ([]byte, error)
 }
 
 // The HandlerFunc type is an adapter to allow the use of
@@ -146,6 +152,9 @@ type Server struct {
 	BlockWiseTransfer *bool
 	// Set maximal block size of payload that will be send in fragment
 	BlockWiseTransferSzx *BlockWiseSzx
+
+	// Used to compress packets
+	Compressor Compressor
 
 	// is encryption on or off?
 	Encryption bool
@@ -585,7 +594,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 
 		if srv.Encryption {
 			ns := session.GetNoiseState()
-			connUDP.SetNoiseState(ns)
+			// connUDP.SetNoiseState(ns)
 
 			// XXX: ideally we'd decrypt in connUDP.ReadFromSessionUDP, but we don't
 			// know which session we're part of at that point. So instead we decrypt here.
@@ -593,16 +602,17 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 
 			hs := ns.Hs
 			if ns.Handshakes < 2 {
-				//log.Printf("handshake decrypting %d bytes with %p: %v", n, hs, m)
+				// log.Printf("handshake decrypting %d bytes with hs %p: %v", n, hs, m)
 				m, ns.Cs0, ns.Cs1, err = hs.ReadMessage(nil, m)
 				if err != nil {
+					log.Printf("handshake decryption failed: %v", err)
 					return err
 				}
-				//log.Printf("handshake decrypted %d bytes with %p: %v", len(m), hs, m)
+				// log.Printf("handshake decrypted %d bytes with hs %p: %v", len(m), hs, m)
 				//log.Printf("handshake decrypted %d->%d bytes with %p", n, len(m), hs)
 				ns.Handshakes++
 			} else {
-				//log.Printf("decrypting %d bytes with %p: %v", n, hs, m)
+				// log.Printf("decrypting %d bytes with hs %p: %v", n, hs, m)
 				var cs *noise.CipherState
 				if ns.Initiator {
 					cs = ns.Cs1
@@ -611,17 +621,32 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 				}
 				m, err = cs.Decrypt(nil, nil, m)
 				if err != nil {
+					log.Printf("Decryption failed: %v", err)
 					return err
 				}
-				//log.Printf("decrypted %d bytes with %p: %v", len(m), hs, m)
+				// log.Printf("decrypted %d bytes with hs %p: %v", len(m), hs, m)
 				//log.Printf("decrypted %d->%d bytes with %p", n, len(m), hs)
 			}
 		}
 
-		msg, err := ParseDgramMessage(m)
+		var decompressed []byte
+		if srv.Compressor != nil {
+			decompressed, err = srv.Compressor.DecompressPayload(m)
+			if err != nil {
+				log.Printf("Failed to decompress payload: %v", err)
+				continue
+			}
+		} else {
+			decompressed = m
+		}
+
+		msg, err := ParseDgramMessage(decompressed)
 		if err != nil {
 			continue
 		}
+
+		// log.Printf("Decompressed msg %s: %d -> %d bytes", msg.Token(), len(m), len(decompressed))
+
 		srv.spawnWorker(&Request{Msg: msg, Client: &ClientCommander{session}})
 	}
 }

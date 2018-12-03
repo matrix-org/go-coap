@@ -37,6 +37,7 @@ type Client struct {
 	BlockWiseTransferSzx *BlockWiseSzx // Set maximal block size of payload that will be send in fragment
 
 	Encryption bool
+	Compressor Compressor
 	Psk        []byte
 }
 
@@ -176,7 +177,6 @@ func (c *Client) Dial(address string) (clientConn *ClientConn, err error) {
 				if err != nil {
 					return nil, err
 				}
-				connection.SetNoiseState(session.GetNoiseState())
 				if session.blockWiseEnabled() {
 					return &blockWiseSession{networkSession: session}, nil
 				}
@@ -185,6 +185,7 @@ func (c *Client) Dial(address string) (clientConn *ClientConn, err error) {
 			Handler:    c.Handler,
 			Encryption: c.Encryption,
 			Psk:        c.Psk,
+			Compressor: c.Compressor,
 		},
 		shutdownSync: make(chan error),
 		multicast:    multicast,
@@ -210,10 +211,6 @@ func (c *Client) Dial(address string) (clientConn *ClientConn, err error) {
 		if err != nil {
 			return nil, err
 		}
-
-		// we have to explicitly set the right conn to the HS of the session we just created
-		conn.SetNoiseState(session.GetNoiseState())
-
 		if session.blockWiseEnabled() {
 			clientConn.commander.networkSession = &blockWiseSession{networkSession: session}
 		} else {

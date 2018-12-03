@@ -2,11 +2,12 @@ package coap
 
 import (
 	"bytes"
-	"github.com/flynn/noise"
 	"log"
 	"net"
 	"sync/atomic"
 	"time"
+
+	"github.com/flynn/noise"
 	// "runtime/debug"
 )
 
@@ -50,6 +51,7 @@ type writeReqTCP struct {
 type writeReqUDP struct {
 	writeReqBase
 	sessionData *SessionUDPData
+	ns *NoiseState
 }
 
 // Conn represents the connection
@@ -60,8 +62,6 @@ type Conn interface {
 	RemoteAddr() net.Addr
 	// Close close the connection
 	Close() error
-
-	SetNoiseState(ns *NoiseState)
 
 	write(w writeReq, timeout time.Duration) error
 }
@@ -79,12 +79,7 @@ type connBase struct {
 	closeChan chan bool
 	finChan   chan bool
 	closed    int32
-	ns        *NoiseState
-}
-
-func (conn *connBase) SetNoiseState(ns *NoiseState) {
-	// log.Printf("Setting ns %p on conn %p", ns.Hs, conn)
-	conn.ns = ns
+	// ns        *NoiseState
 }
 
 func (conn *connBase) finishWrite() {
@@ -207,14 +202,26 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 			return err
 		}
 
+		var compressed []byte
+		if srv.Compressor != nil {
+			compressed, err = srv.Compressor.CompressPayload(buf.Bytes())
+			if err != nil {
+				return err
+			}
+			//log.Printf("Compressed packet: %d -> %d bytes", len(buf.Bytes()), len(compressed))
+		} else {
+			compressed = buf.Bytes()
+		}
+
 		var msg []byte
 
 		if srv.Encryption {
-			ns := conn.ns
+			ns := wreqUDP.ns
 			if ns.Handshakes < 2 {
-				//log.Printf("handshake encrypting %d bytes with %p: %v", len(buf.Bytes()), ns.Hs, buf.Bytes())
-				res, cs0, cs1, err := ns.Hs.WriteMessage(nil, buf.Bytes())
+				//log.Printf("handshake encrypting %d bytes with hs %p: %v", len(compressed), ns.Hs, compressed)
+				res, cs0, cs1, err := ns.Hs.WriteMessage(nil, compressed)
 				if err != nil {
+					log.Printf("handshake encryption failed with %v", err)
 					return err
 				}
 
@@ -222,25 +229,27 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 				ns.Cs1 = cs1
 
 				msg = res
-				//log.Printf("handshake encrypted %d bytes with %p: %v", len(msg), ns.Hs, msg)
+				//log.Printf("handshake encrypted %d bytes with hs %p: %v", len(msg), ns.Hs, msg)
 				//log.Printf("handshake encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
 				ns.Handshakes++
 			} else {
-				//log.Printf("encrypting %d bytes with %p: %v", len(buf.Bytes()), ns.Hs, buf.Bytes())
+				//log.Printf("encrypting %d bytes with hs %p: %v", len(compressed), ns.Hs, compressed)
 				var cs *noise.CipherState
-				if conn.ns.Initiator {
+				if ns.Initiator {
 					cs = ns.Cs0
 				} else {
 					cs = ns.Cs1
 				}
-				res := cs.Encrypt(nil, nil, buf.Bytes())
+				res := cs.Encrypt(nil, nil, compressed)
 				msg = res
-				//log.Printf("encrypted %d bytes with %p: %v", len(msg), ns.Hs, msg)
+				//log.Printf("encrypted %d bytes with hs %p: %v", len(msg), ns.Hs, msg)
 				//log.Printf("encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
 			}
 		} else {
-			msg = buf.Bytes()
+			msg = compressed
 		}
+
+		//log.Printf("sending %d bytes to conn %p", len(msg), conn)
 
 		conn.connection.SetWriteDeadline(time.Now().Add(writeTimeout))
 		_, err = WriteToSessionUDP(conn.connection, msg, wreqUDP.sessionData)
@@ -269,8 +278,8 @@ func newConnectionUDP(c *net.UDPConn, srv *Server) Conn {
 
 	connection := &connUDP{connBase: connBase{writeChan: make(chan writeReq, 10000), closeChan: make(chan bool), finChan: make(chan bool), closed: 0}, connection: c}
 
-	// log.Printf("newConnectionUDP called with initiator=%v and conn=%p", initiator, connection)
-	// debug.PrintStack()
+	//log.Printf("newConnectionUDP called with conn=%p", connection)
+	//debug.PrintStack()
 
 	go writeToConnection(connection, srv)
 	return connection

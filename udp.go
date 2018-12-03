@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"net"
 	"runtime"
+	// "log"
 
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
@@ -52,17 +53,20 @@ func ReadFromSessionUDP(conn *net.UDPConn, b []byte) (int, *SessionUDPData, erro
 	return n, &SessionUDPData{raddr, oob[:oobn]}, err
 }
 
-// WriteToSessionUDP acts just like net.UDPConn.WriteTo(), but uses a *SessionUDP instead of a net.Addr.
+// WriteToSessionUDP acts just like net.UDPConn.WriteTo(), but uses a *SessionUDPData instead of a net.Addr.
 func WriteToSessionUDP(conn *net.UDPConn, b []byte, session *SessionUDPData) (int, error) {
 
-	//log.Printf("sending %v to %v", b, session)
+	//log.Printf("sending %v", b)
 
 	//check if socket is connected via Dial
 	if conn.RemoteAddr() == nil {
+		//log.Printf("send to %v", session.raddr)
 		return conn.WriteToUDP(b, session.raddr)
 	}
 
-	n, _, err := conn.WriteMsgUDP(b, correctSource(session.context), nil)
+	//log.Printf("sendmsg to %v", correctSource(session.context))
+	/// XXX: this is needed on macOS otherwise it claims we're sending to an unconnected socket and I have no idea why
+	n, _, err := conn.WriteMsgUDP(b, make([]byte, 0) /*correctSource(session.context)*/, nil)
 	return n, err
 }
 
