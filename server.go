@@ -23,7 +23,7 @@ const maxWorkersCount = 10000
 
 const coapTimeout time.Duration = 3600 * time.Second
 
-const syncTimeout time.Duration = 30 * time.Second
+const syncTimeout time.Duration = 180 * time.Second
 
 const maxMessageSize = 1152
 
