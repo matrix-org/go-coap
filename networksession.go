@@ -1,7 +1,6 @@
 package coap
 
 import (
-	"github.com/flynn/noise"
 	"log"
 	"net"
 	"sync"
@@ -98,7 +97,8 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 	}
 
 	if srv.Encryption {
-		if s.ns, err = NewNoiseState(connection, srv.KeyStore); err != nil {
+		var err error
+		if s.ns, err = NewNoiseState(connection, initiator, srv.KeyStore); err != nil {
 			return s, err
 		}
 

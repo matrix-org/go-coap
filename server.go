@@ -12,8 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/flynn/noise"
 )
 
 // Interval for stop worker if no load
@@ -602,7 +600,10 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			// know which session we're part of at that point. So instead we decrypt here.
 			// We might want to call through to Conn for this?
 
-			m = ns.DecryptMessage(m)
+			m, err = ns.DecryptMessage(m, connUDP)
+			if err != nil {
+				log.Printf("Failed to decrypt message due to %v", err)
+			}
 			// log.Printf("decrypted %d->%d bytes with %+v", n, len(m), ns)
 		}
 

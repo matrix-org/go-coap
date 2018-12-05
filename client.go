@@ -37,6 +37,7 @@ type Client struct {
 	BlockWiseTransferSzx *BlockWiseSzx // Set maximal block size of payload that will be send in fragment
 
 	Encryption bool
+	KeyStore   KeyStore
 	Compressor Compressor
 	Psk        []byte
 }

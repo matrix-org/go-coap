@@ -6,8 +6,6 @@ import (
 	"net"
 	"sync/atomic"
 	"time"
-
-	"github.com/flynn/noise"
 	// "runtime/debug"
 )
 
@@ -214,10 +212,13 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 		}
 
 		var msg []byte
-
 		if srv.Encryption {
 			ns := wreqUDP.ns
-			msg = ns.EncryptMessage(compressed)
+			msg, err = ns.EncryptMessage(compressed)
+			if err != nil {
+				log.Printf("failed to encrypt message: %v", err)
+				return err
+			}
 			// log.Printf("encrypted %d->%d bytes with %+v", len(compressed), len(msg), ns)
 		} else {
 			msg = compressed
