@@ -217,35 +217,8 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 
 		if srv.Encryption {
 			ns := wreqUDP.ns
-
-			if ns.Handshakes < 2 {
-				//log.Printf("handshake encrypting %d bytes with hs %p: %v", len(compressed), ns.Hs, compressed)
-				res, cs0, cs1, err := ns.Hs.WriteMessage(nil, compressed)
-				if err != nil {
-					log.Printf("handshake encryption failed with %v", err)
-					return err
-				}
-
-				ns.Cs0 = cs0
-				ns.Cs1 = cs1
-
-				msg = res
-				//log.Printf("handshake encrypted %d bytes with hs %p: %v", len(msg), ns.Hs, msg)
-				//log.Printf("handshake encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
-				ns.Handshakes++
-			} else {
-				//log.Printf("encrypting %d bytes with hs %p: %v", len(compressed), ns.Hs, compressed)
-				var cs *noise.CipherState
-				if ns.Initiator {
-					cs = ns.Cs0
-				} else {
-					cs = ns.Cs1
-				}
-				res := cs.Encrypt(nil, nil, compressed)
-				msg = res
-				//log.Printf("encrypted %d bytes with hs %p: %v", len(msg), ns.Hs, msg)
-				//log.Printf("encrypted %d->%d bytes with %p", len(buf.Bytes()), len(msg), ns.Hs)
-			}
+			msg = ns.EncryptMessage(compressed)
+			// log.Printf("encrypted %d->%d bytes with %+v", len(compressed), len(msg), ns)
 		} else {
 			msg = compressed
 		}

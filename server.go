@@ -594,39 +594,13 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 
 		if srv.Encryption {
 			ns := session.GetNoiseState()
-			// connUDP.SetNoiseState(ns)
 
 			// XXX: ideally we'd decrypt in connUDP.ReadFromSessionUDP, but we don't
 			// know which session we're part of at that point. So instead we decrypt here.
 			// We might want to call through to Conn for this?
 
-			hs := ns.Hs
-			if ns.Handshakes < 2 {
-				// log.Printf("handshake decrypting %d bytes with hs %p: %v", n, hs, m)
-				m, ns.Cs0, ns.Cs1, err = hs.ReadMessage(nil, m)
-				if err != nil {
-					log.Printf("handshake decryption failed: %v", err)
-					return err
-				}
-				// log.Printf("handshake decrypted %d bytes with hs %p: %v", len(m), hs, m)
-				//log.Printf("handshake decrypted %d->%d bytes with %p", n, len(m), hs)
-				ns.Handshakes++
-			} else {
-				// log.Printf("decrypting %d bytes with hs %p: %v", n, hs, m)
-				var cs *noise.CipherState
-				if ns.Initiator {
-					cs = ns.Cs1
-				} else {
-					cs = ns.Cs0
-				}
-				m, err = cs.Decrypt(nil, nil, m)
-				if err != nil {
-					log.Printf("Decryption failed: %v", err)
-					return err
-				}
-				// log.Printf("decrypted %d bytes with hs %p: %v", len(m), hs, m)
-				//log.Printf("decrypted %d->%d bytes with %p", n, len(m), hs)
-			}
+			m = ns.DecryptMessage(m)
+			// log.Printf("decrypted %d->%d bytes with %+v", n, len(m), ns)
 		}
 
 		var decompressed []byte
