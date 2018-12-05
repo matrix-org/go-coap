@@ -217,6 +217,7 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 
 		if srv.Encryption {
 			ns := wreqUDP.ns
+
 			if ns.Handshakes < 2 {
 				//log.Printf("handshake encrypting %d bytes with hs %p: %v", len(compressed), ns.Hs, compressed)
 				res, cs0, cs1, err := ns.Hs.WriteMessage(nil, compressed)
