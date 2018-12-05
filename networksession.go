@@ -98,7 +98,7 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 	}
 
 	if srv.Encryption {
-		if s.ns, err = InitNoiseState(connection); err != nil {
+		if s.ns, err = NewNoiseState(connection, srv.KeyStore); err != nil {
 			return s, err
 		}
 

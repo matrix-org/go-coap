@@ -159,6 +159,9 @@ type Server struct {
 	// is encryption on or off?
 	Encryption bool
 
+	// what keystore to use for tracking remote server keys
+	KeyStore KeyStore
+
 	// psk if any
 	Psk []byte
 

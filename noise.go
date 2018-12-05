@@ -2,6 +2,7 @@ package coap
 
 import (
 	"github.com/flynn/noise"
+	"log"
 )
 
 type NoisePipeState int
@@ -19,6 +20,11 @@ const (
 
 	// else, if we have a static key for our peer:
 	IK1 NoisePipeState = 5 // -> e, es, s, ss + payload
+
+	// after receiving an IK1 we try to decrypt, and if decryption fails we assume the
+	// initiatior is instead trying to talk XX to us and so we treat it as an XX1 and
+	// switch to XXfallback instead.
+
 	IK2 NoisePipeState = 6 // <- e, ee, se    + payload
 
 	// and then we're established again.
@@ -27,7 +33,10 @@ const (
 	ERROR NoisePipeState = 7
 )
 
-var keyStore map[net.Addr][]byte
+type KeyStore interface {
+	Get(net.Addr) ([]byte, error)
+	Put(net.Addr, []byte)
+}
 
 type NoiseState struct {
 	Hs              *noise.HandshakeState
@@ -35,6 +44,7 @@ type NoiseState struct {
 	Rng             io.Reader
 	PipeState       NoisePipeState
 	connection      Conn
+	keyStore        KeyStore
 	LocalStaticKey  noise.DHKey
 	RemoteStaticKey noise.DHKey
 	Cs0             *noise.CipherState // the cipher used by the initiator to send (and the receiver to receive)
@@ -43,7 +53,11 @@ type NoiseState struct {
 	queuedMsg       []byte
 }
 
-func (ns *NoiseState) InitNoiseState(connection Conn) (*NoiseState, error) {
+func NewNoiseState(connection Conn, keyStore KeyStore) (*NoiseState, error) {
+	if keyStore == nil {
+		return error("Encryption requires a keystore")
+	}
+
 	// set up noise initiator or receiver
 	cs := noise.NewCipherSuite(noise.DH25519, noise.CipherAESGCM, noise.HashSHA512)
 	// cs := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
@@ -58,6 +72,7 @@ func (ns *NoiseState) InitNoiseState(connection Conn) (*NoiseState, error) {
 		Cs:             cs,
 		Rng:            rng,
 		connection:     connection,
+		keyStore:       keyStore,
 		LocalStaticKey: static,
 		Initiator:      initiator,
 	}
@@ -79,6 +94,8 @@ func (ns *NoiseState) InitNoiseState(connection Conn) (*NoiseState, error) {
 			return nil, err
 		}
 	}
+
+	return ns, nil
 }
 
 func (ns *NoiseState) SetupXX() error {

@@ -184,6 +184,7 @@ func (c *Client) Dial(address string) (clientConn *ClientConn, err error) {
 			},
 			Handler:    c.Handler,
 			Encryption: c.Encryption,
+			KeyStore:   c.KeyStore,
 			Psk:        c.Psk,
 			Compressor: c.Compressor,
 		},
