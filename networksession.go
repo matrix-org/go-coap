@@ -67,7 +67,6 @@ type networkSession interface {
 	blockWiseIsValid(szx BlockWiseSzx) bool
 }
 
-
 // NewSessionUDP create new session for UDP connection
 func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData, initiator bool) (networkSession, error) {
 
@@ -99,7 +98,7 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 	}
 
 	if srv.Encryption {
-		if s.ns, err := InitNoiseState(connection); err != nil {
+		if s.ns, err = InitNoiseState(connection); err != nil {
 			return s, err
 		}
 

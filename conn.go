@@ -51,7 +51,7 @@ type writeReqTCP struct {
 type writeReqUDP struct {
 	writeReqBase
 	sessionData *SessionUDPData
-	ns *NoiseState
+	ns          *NoiseState
 }
 
 // Conn represents the connection
