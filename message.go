@@ -497,6 +497,8 @@ type Message interface {
 	UnmarshalBinary(data []byte) error
 	SetToken(t []byte)
 	SetMessageID(messageID uint16)
+
+	MessageKey() messageKey
 }
 
 // MessageParams params to create COAP message
@@ -533,6 +535,10 @@ func (m *MessageBase) MessageID() uint16 {
 
 func (m *MessageBase) Token() []byte {
 	return m.token
+}
+
+func (m *MessageBase) MessageKey() messageKey {
+	return newMessageKey(m.Token(), m.MessageID())
 }
 
 func (m *MessageBase) Payload() []byte {
@@ -869,4 +875,16 @@ func parseBody(optionDefs map[OptionID]optionDef, data []byte) (options, []byte,
 	}
 
 	return opts, data, nil
+}
+
+type messageKey struct {
+	token string
+	msgID uint16
+}
+
+func newMessageKey(token []byte, msgID uint16) messageKey {
+	return messageKey{
+		token: string(token), // Go doesn't care if strings aren't valid utf8......
+		msgID: msgID,
+	}
 }

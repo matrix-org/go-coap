@@ -1,12 +1,13 @@
 package coap
 
 import (
-	"github.com/flynn/noise"
 	"log"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/flynn/noise"
 	//	"runtime/debug"
 )
 
@@ -65,6 +66,8 @@ type networkSession interface {
 	blockWiseMaxPayloadSize(peer BlockWiseSzx) (int, BlockWiseSzx)
 
 	blockWiseIsValid(szx BlockWiseSzx) bool
+
+	haveSentResponse(req Message) *Message
 }
 
 // NewSessionUDP create new session for UDP connection
@@ -92,10 +95,27 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 			handler:              &TokenHandler{tokenHandlers: make(map[[MaxTokenSize]byte]HandlerFunc)},
 			blockWiseTransfer:    BlockWiseTransfer,
 			blockWiseTransferSzx: uint32(BlockWiseTransferSzx),
+			responseMap:          make(map[messageKey]*Message),
 		},
 		sessionUDPData: sessionUDPData,
 		mapPairs:       make(map[[MaxTokenSize]byte]map[uint16](*sessionResp)),
+		mapPairsRecent: make(map[[MaxTokenSize]byte]map[uint16]time.Time),
+		closed:         make(chan interface{}),
 	}
+
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+
+		for {
+			select {
+			case <-ticker.C:
+				s.cleanUpRequestMap()
+			case <-s.closed:
+				ticker.Stop()
+				break
+			}
+		}
+	}()
 
 	if srv.Encryption {
 		// set up noise initiator or receiver
@@ -145,6 +165,7 @@ func newSessionTCP(connection Conn, srv *Server) (networkSession, error) {
 			handler:              &TokenHandler{tokenHandlers: make(map[[MaxTokenSize]byte]HandlerFunc)},
 			blockWiseTransfer:    BlockWiseTransfer,
 			blockWiseTransferSzx: uint32(BlockWiseTransferSzx),
+			responseMap:          make(map[messageKey]*Message),
 		},
 	}
 
@@ -178,17 +199,35 @@ type sessionBase struct {
 	blockWiseTransferSzx uint32 //BlockWiseSzx
 
 	ns *NoiseState
+
+	responseMap     map[messageKey]*Message
+	responseMapLock sync.Mutex
 }
 
 func (s *sessionBase) GetNoiseState() *NoiseState {
 	return s.ns
 }
 
+func (s *sessionBase) haveSentResponse(req Message) *Message {
+	s.responseMapLock.Lock()
+	defer s.responseMapLock.Unlock()
+	return s.responseMap[req.MessageKey()]
+}
+
+func (s *sessionBase) registerSendingMessage(req Message) {
+	s.responseMapLock.Lock()
+	defer s.responseMapLock.Unlock()
+
+	s.responseMap[req.MessageKey()] = &req
+}
+
 type sessionUDP struct {
 	sessionBase
 	sessionUDPData *SessionUDPData                                // oob data to get egress interface right
 	mapPairs       map[[MaxTokenSize]byte]map[uint16]*sessionResp // storage of channel Message
+	mapPairsRecent map[[MaxTokenSize]byte]map[uint16]time.Time    // storage of if this *was* a pair message
 	mapPairsLock   sync.Mutex                                     // to sync add remove token
+	closed         chan interface{}
 }
 
 type sessionTCP struct {
@@ -294,6 +333,8 @@ func (s *sessionUDP) closeWithError(err error) error {
 
 	s.srv.NotifySessionEndFunc(&ClientCommander{s}, err)
 
+	close(s.closed)
+
 	return err
 }
 
@@ -383,17 +424,29 @@ func (s *sessionTCP) IsTCP() bool {
 }
 
 func (s *sessionBase) exchangeFunc(req Message, writeTimeout, readTimeout time.Duration, pairChan *sessionResp, write func(msg Message, timeout time.Duration) error) (Message, error) {
+	retryInterval := time.Duration(5 * time.Second)
+	timeoutChan := time.After(readTimeout)
 
-	err := write(req, writeTimeout)
-	if err != nil {
-		return nil, err
-	}
+	attempts := 0
 
-	select {
-	case resp := <-pairChan.ch:
-		return resp.Msg, nil
-	case <-time.After(readTimeout):
-		return nil, ErrTimeout
+	for {
+		log.Printf("Transmitting message %s %d, attempt %d. Retry %s Timeout %s", req.Token(), req.MessageID(), attempts, retryInterval, readTimeout)
+		attempts++
+
+		err := write(req, writeTimeout)
+		if err != nil {
+			log.Printf("Transmitting error %s %d: %v", req.Token(), req.MessageID(), err)
+			return nil, err
+		}
+
+		select {
+		case resp := <-pairChan.ch:
+			return resp.Msg, nil
+		case <-time.After(retryInterval):
+			continue
+		case <-timeoutChan:
+			return nil, ErrTimeout
+		}
 	}
 }
 
@@ -449,6 +502,16 @@ func (s *sessionUDP) exchangeTimeout(req Message, writeDeadline, readDeadline ti
 		return nil, ErrTokenAlreadyExist
 	}
 	s.mapPairs[pairToken][req.MessageID()] = pairChan
+
+	if s.mapPairsRecent[pairToken] == nil {
+		s.mapPairsRecent[pairToken] = make(map[uint16]time.Time)
+	}
+	if _, ok := s.mapPairsRecent[pairToken][req.MessageID()]; ok {
+		s.mapPairsLock.Unlock()
+		return nil, ErrTokenAlreadyExist
+	}
+	s.mapPairsRecent[pairToken][req.MessageID()] = time.Now()
+
 	s.mapPairsLock.Unlock()
 
 	defer func() {
@@ -461,6 +524,38 @@ func (s *sessionUDP) exchangeTimeout(req Message, writeDeadline, readDeadline ti
 	}()
 
 	return s.exchangeFunc(req, writeDeadline, readDeadline, pairChan, s.writeTimeout)
+}
+
+func (s *sessionUDP) cleanUpRequestMap() {
+	s.mapPairsLock.Lock()
+	defer s.mapPairsLock.Unlock()
+
+	now := time.Now()
+
+	var toDelete []struct {
+		token [MaxTokenSize]byte
+		msgID uint16
+	}
+	for pairToken, msgMap := range s.mapPairsRecent {
+		for msgID, tm := range msgMap {
+			if tm.Add(5 * time.Minute).After(now) {
+				toDelete = append(toDelete, struct {
+					token [MaxTokenSize]byte
+					msgID uint16
+				}{
+					token: pairToken,
+					msgID: msgID,
+				})
+			}
+		}
+	}
+
+	for _, entry := range toDelete {
+		delete(s.mapPairsRecent[entry.token], entry.msgID)
+		if len(s.mapPairsRecent[entry.token]) == 0 {
+			delete(s.mapPairsRecent, entry.token)
+		}
+	}
 }
 
 // Write implements the networkSession.Write method.
@@ -487,6 +582,7 @@ func (s *sessionTCP) writeTimeout(m Message, timeout time.Duration) error {
 	if err := validateMsg(m); err != nil {
 		return err
 	}
+	s.registerSendingMessage(m)
 	return s.connection.write(&writeReqTCP{writeReqBase{req: m, respChan: make(chan error, 1)}}, timeout)
 }
 
@@ -498,6 +594,7 @@ func (s *sessionUDP) writeTimeout(m Message, timeout time.Duration) error {
 	if err := validateMsg(m); err != nil {
 		return err
 	}
+	s.registerSendingMessage(m)
 	return s.connection.write(&writeReqUDP{writeReqBase{req: m, respChan: make(chan error, 1)}, s.sessionUDPData, s.ns}, timeout)
 }
 
@@ -535,6 +632,16 @@ func (s *sessionUDP) handlePairMsg(w ResponseWriter, r *Request) bool {
 		}
 		return true
 	}
+
+	s.mapPairsLock.Lock()
+	_, ok := s.mapPairsRecent[token][r.Msg.MessageID()]
+	s.mapPairsLock.Unlock()
+
+	if ok {
+		log.Printf("Got duplicate response %v", r.Msg.MessageKey())
+		return true
+	}
+
 	return false
 }
 

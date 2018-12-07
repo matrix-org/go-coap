@@ -177,6 +177,9 @@ type Server struct {
 
 	sessionUDPMapLock sync.Mutex
 	sessionUDPMap     map[string]networkSession
+
+	seenRequestMap     map[[MaxTokenSize]byte]map[uint16]time.Time
+	seenRequestMapLock sync.Mutex
 }
 
 func (srv *Server) workerChannelHandler(inUse bool, timeout *time.Timer) bool {
@@ -655,12 +658,89 @@ func (srv *Server) serve(r *Request) {
 	w := responseWriterFromRequest(r)
 
 	handlePairMsg(w, r, func(w ResponseWriter, r *Request) {
-		handleSignalMsg(w, r, func(w ResponseWriter, r *Request) {
-			handleBySessionTokenHandler(w, r, func(w ResponseWriter, r *Request) {
-				handleBlockWiseMsg(w, r, srv.serveCOAP)
+		srv.handleSeenRequest(w, r, func(w ResponseWriter, r *Request) {
+			handleSignalMsg(w, r, func(w ResponseWriter, r *Request) {
+				handleBySessionTokenHandler(w, r, func(w ResponseWriter, r *Request) {
+					handleBlockWiseMsg(w, r, srv.serveCOAP)
+				})
 			})
 		})
 	})
+}
+
+func (srv *Server) handleSeenRequest(w ResponseWriter, r *Request, next HandlerFunc) {
+	var token [MaxTokenSize]byte
+	copy(token[:], r.Msg.Token())
+
+	srv.seenRequestMapLock.Lock()
+	defer srv.seenRequestMapLock.Unlock()
+
+	// If this is the first request we need to set some things up
+	if srv.seenRequestMap == nil {
+		srv.seenRequestMap = make(map[[MaxTokenSize]byte]map[uint16]time.Time)
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+
+			for {
+				select {
+				case <-ticker.C:
+					srv.cleanUpRequestMap()
+				}
+			}
+		}()
+	}
+
+	if srv.seenRequestMap[token] == nil {
+		srv.seenRequestMap[token] = make(map[uint16]time.Time)
+	}
+	if _, exists := srv.seenRequestMap[token][r.Msg.MessageID()]; exists {
+		// We've seen this message before, so we don't bother passing it on
+		resp := r.Client.networkSession.haveSentResponse(r.Msg)
+		log.Printf("Got duplicate request %v. Resending: %v", r.Msg.MessageKey(), *resp)
+		if resp != nil {
+			err := r.Client.networkSession.WriteMsg(*resp)
+			if err != nil {
+				log.Printf("Failed to resend response for %v", r.Msg.MessageKey())
+			}
+		}
+		return
+	}
+
+	srv.seenRequestMap[token][r.Msg.MessageID()] = time.Now()
+
+	next(w, r)
+}
+
+func (srv *Server) cleanUpRequestMap() {
+	srv.seenRequestMapLock.Lock()
+	defer srv.seenRequestMapLock.Unlock()
+
+	now := time.Now()
+
+	var toDelete []struct {
+		token [MaxTokenSize]byte
+		msgID uint16
+	}
+	for pairToken, msgMap := range srv.seenRequestMap {
+		for msgID, tm := range msgMap {
+			if tm.Add(5 * time.Minute).After(now) {
+				toDelete = append(toDelete, struct {
+					token [MaxTokenSize]byte
+					msgID uint16
+				}{
+					token: pairToken,
+					msgID: msgID,
+				})
+			}
+		}
+	}
+
+	for _, entry := range toDelete {
+		delete(srv.seenRequestMap[entry.token], entry.msgID)
+		if len(srv.seenRequestMap[entry.token]) == 0 {
+			delete(srv.seenRequestMap, entry.token)
+		}
+	}
 }
 
 func (srv *Server) serveCOAP(w ResponseWriter, r *Request) {
