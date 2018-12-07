@@ -240,17 +240,6 @@ func newConnectionTCP(c net.Conn, srv *Server) Conn {
 	return connection
 }
 
-type RandomInc byte
-
-// FIXME: we probably need a better RNG than this... :P
-func (r *RandomInc) Read(p []byte) (int, error) {
-	for i := range p {
-		p[i] = byte(*r)
-		*r = (*r) + 1
-	}
-	return len(p), nil
-}
-
 func newConnectionUDP(c *net.UDPConn, srv *Server) Conn {
 
 	connection := &connUDP{connBase: connBase{writeChan: make(chan writeReq, 10000), closeChan: make(chan bool), finChan: make(chan bool), closed: 0}, connection: c}
