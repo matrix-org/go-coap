@@ -214,13 +214,13 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 		var msg []byte
 		if srv.Encryption {
 			ns := wreqUDP.ns
-			log.Printf("encrypting %d bytes with %+v as %v", len(compressed), ns, compressed)
+			// log.Printf("encrypting %d bytes with %+v as %v", len(compressed), ns, compressed)
 			msg, err = ns.EncryptMessage(compressed)
 			if err != nil {
 				log.Printf("failed to encrypt message: %v", err)
 				return err
 			}
-			log.Printf("encrypted %d bytes with %+v as %v", len(msg), ns, msg)
+			// log.Printf("encrypted %d bytes with %+v as %v", len(msg), ns, msg)
 			// log.Printf("encrypted %d->%d bytes with %+v", len(compressed), len(msg), ns)
 		} else {
 			msg = compressed

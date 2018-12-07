@@ -600,12 +600,12 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			// know which session we're part of at that point. So instead we decrypt here.
 			// We might want to call through to Conn for this?
 
-			log.Printf("decrypting %d bytes with %+v as %v", n, ns, m)
+			// log.Printf("decrypting %d bytes with %+v as %v", n, ns, m)
 			m, err = ns.DecryptMessage(m, connUDP, s)
 			if err != nil {
 				log.Printf("Failed to decrypt message due to %v", err)
 			}
-			log.Printf("decrypted %d bytes with %+v as %v", len(m), ns, m)
+			// log.Printf("decrypted %d bytes with %+v as %v", len(m), ns, m)
 			// log.Printf("decrypted %d->%d bytes with %+v", n, len(m), ns)
 		}
 

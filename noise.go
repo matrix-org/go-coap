@@ -158,10 +158,15 @@ func (ns *NoiseState) SetupIK() error {
 
 func debugf(format string, args ...interface{}) {
 	format = "DEBUG: " + format
-	log.Printf(format, args...)
+	// log.Printf(format, args...)
 }
 
 func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
+
+	// TODO: add sequence numbers to handshake packets and retry them at the noise layer
+	// in the event of packet loss.  (See "11.4. Out-of-order transport messages" from the
+	// noise spec)
+
 	switch ns.PipeState {
 	case XX1: // -> e
 		if ns.Initiator {
@@ -227,6 +232,11 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 		} else {
 			cs = ns.Cs1
 		}
+
+		// TODO: derive an 8-bit nonce from our 64-bit nonce and prepend it to our payloads
+		// so that the receiver can set the correct nonce to decrypt the packets, given they
+		// may arrive out-of-order. See "11.4. Out-of-order transport messages"
+
 		msg = cs.Encrypt(nil, nil, msg)
 		return msg, nil
 
@@ -360,6 +370,13 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 		} else {
 			cs = ns.Cs0
 		}
+
+		// TODO: take our 8-bit nonce header, derive a full 64-bit nonce from it,
+		// and explicitly call SetNonce() on our `cs` so we can reliably decrypt
+		// out-of-order or missing messages.  We should also deduplicate at this point
+		// to stop replay attacks.
+		// See "11.4. Out-of-order transport messages"
+
 		msg, err := cs.Decrypt(nil, nil, msg)
 		if err != nil {
 			log.Printf("Failed to decrypt with %v", err)
