@@ -132,7 +132,7 @@ func (ns *NoiseState) SetupXX() error {
 
 func (ns *NoiseState) SetupIK() error {
 	var err error
-	var peerStatic []byte;
+	var peerStatic []byte
 	if ns.Initiator {
 		if ns.RemoteStaticKey == nil {
 			return errors.New("Tried to initiate IK handshake without knowing a remote static key!")
@@ -173,7 +173,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 	case XX1: // -> e
 		if ns.Initiator {
 			ns.queuedMsg = msg
-			debugf("I Sending XX1: -> e");
+			debugf("I Sending XX1: -> e")
 			msg, _, _, err := ns.Hs.WriteMessage(nil, nil)
 			if err != nil {
 				log.Printf("XX1 handshake encryption failed with %v", err)
@@ -192,7 +192,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 				return nil, errors.New("XX2 should only ever be called with a nil msg")
 			}
 
-			debugf("R Sending XX2: <- e, ee, s, es + nil payload");
+			debugf("R Sending XX2: <- e, ee, s, es + nil payload")
 			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, nil)
 			if err != nil {
 				log.Printf("XX2 handshake encryption failed with %v", err)
@@ -212,7 +212,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 
 	case XX3: // -> s, se + payload
 		if ns.Initiator {
-			debugf("I Sending XX3: -> s, se + encrypted payload %v", ns.queuedMsg);
+			debugf("I Sending XX3: -> s, se + encrypted payload %v", ns.queuedMsg)
 			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, ns.queuedMsg)
 			if err != nil {
 				log.Printf("XX3 handshake encryption failed with %v", err)
@@ -245,7 +245,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 
 	case IK1: // -> e, es, s, ss  + payload
 		if ns.Initiator {
-			debugf("I Sending IK1: -> e, es, s, ss + decrypted payload %v", msg);
+			debugf("I Sending IK1: -> e, es, s, ss + decrypted payload %v", msg)
 			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, msg)
 			if err != nil {
 				log.Printf("IK1 handshake encryption failed with %v", err)
@@ -261,7 +261,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 
 	case IK2: // <- e, ee, se    + payload
 		if !ns.Initiator {
-			debugf("R Sending IK2: <- e, ee, se + decrypted payload %v", msg);
+			debugf("R Sending IK2: <- e, ee, se + decrypted payload %v", msg)
 			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, msg)
 			if err != nil {
 				log.Printf("IK2 handshake encryption failed with %v", err)
@@ -295,7 +295,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 			if msg != nil {
 				return nil, errors.New("Received unexpected payload in XX1 handshake")
 			}
-			debugf("R Receiving XX1: <- e");
+			debugf("R Receiving XX1: <- e")
 			ns.PipeState++
 
 			// we now trigger sending an XX2
@@ -327,7 +327,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 			if msg != nil {
 				return nil, errors.New("Received unexpected payload in XX2 handshake")
 			}
-			debugf("I Receiving XX2: <- e, ee, s, es + payload %v", msg);
+			debugf("I Receiving XX2: <- e, ee, s, es + payload %v", msg)
 
 			ns.PipeState++
 
@@ -358,7 +358,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 				log.Printf("XX3 handshake decryption failed with %v", err)
 				return nil, err
 			}
-			debugf("R Receiving XX3: -> s, se + decrypted payload %v", msg);
+			debugf("R Receiving XX3: -> s, se + decrypted payload %v", msg)
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
 			ns.PipeState++
@@ -399,7 +399,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 				ns.SetupXX()
 				return ns.DecryptMessage(origMsg, connUDP, sessionUDPData)
 			}
-			debugf("R Receiving IK1: -> e, es, s, ss + decrypted payload %v", msg);
+			debugf("R Receiving IK1: -> e, es, s, ss + decrypted payload %v", msg)
 
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
@@ -416,7 +416,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 				log.Printf("IK2 handshake decryption failed with %v", err)
 				return nil, err
 			}
-			debugf("R Receiving IK2: <- e, ee, se + decrypted payload %v", msg);
+			debugf("R Receiving IK2: <- e, ee, se + decrypted payload %v", msg)
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
 			ns.PipeState = READY
