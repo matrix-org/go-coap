@@ -16,8 +16,8 @@ const (
 
 	// if we have no static key for our peer:
 	XX1 NoisePipeState = 1 // -> e
-	XX2 NoisePipeState = 2 // <- e, ee, s, es + payload  (initiator stores s as peer). Payload is empty given the receiver has nothing yet to say.
-	XX3 NoisePipeState = 3 // -> s, se        + payload  (receiver stores for that peer). Payload is the CoAP req from the initiator.
+	XX2 NoisePipeState = 2 // <- e, ee, s, es + payload  (initiator stores s as peer). Payload is empty given the responder has nothing yet to say.
+	XX3 NoisePipeState = 3 // -> s, se        + payload  (responder stores for that peer). Payload is the CoAP req from the initiator.
 
 	// and then we're established.
 	READY NoisePipeState = 4 // send & encrypt via respective CipherStates
@@ -54,8 +54,8 @@ type NoiseState struct {
 	keyStore        KeyStore
 	LocalStaticKey  noise.DHKey
 	RemoteStaticKey []byte
-	Cs0             *noise.CipherState // the cipher used by the initiator to send (and the receiver to receive)
-	Cs1             *noise.CipherState // the cipher used by the initiator to receive (and the receiver to send)
+	Cs0             *noise.CipherState // the cipher used by the initiator to send (and the responder to receive)
+	Cs1             *noise.CipherState // the cipher used by the initiator to receive (and the responder to send)
 	Initiator       bool
 	queuedMsg       []byte
 }
@@ -65,7 +65,7 @@ func NewNoiseState(connection Conn, initiator bool, ks KeyStore) (*NoiseState, e
 		return nil, errors.New("Encryption requires a keystore")
 	}
 
-	// set up noise initiator or receiver
+	// set up noise initiator or responder
 	cs := noise.NewCipherSuite(noise.DH25519, noise.CipherAESGCM, noise.HashSHA512)
 	// cs := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
 	rng := rand.Reader
@@ -99,7 +99,7 @@ func NewNoiseState(connection Conn, initiator bool, ks KeyStore) (*NoiseState, e
 	}
 
 	if ns.RemoteStaticKey != nil || !ns.Initiator {
-		// we try IK if we're a receiver,
+		// we try IK if we're a responder,
 		// or if we are an initiator but know the remote key.
 		if err := ns.SetupIK(); err != nil {
 			return nil, err
@@ -163,7 +163,7 @@ func debugf(format string, args ...interface{}) {
 
 func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 
-	// TODO: add IDs of some kind to handshake packets and retry them at the noise layer
+	// TODO: add IDs of some kind to handshake packets and retry them at this layer
 	// in the event of packet loss.
 	// See https://noiseprotocol.org/noise.html#out-of-order-transport-messages
 	// and 'negotiation data' from
@@ -207,7 +207,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 			ns.PipeState++
 			return msg, err
 		} else {
-			return nil, errors.New("Only receiver should send in XX2 handshake")
+			return nil, errors.New("Only responder should send in XX2 handshake")
 		}
 
 	case XX3: // -> s, se + payload
@@ -272,7 +272,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 			ns.PipeState = READY
 			return msg, err
 		} else {
-			return nil, errors.New("Only receiver should send in IK2 handshake")
+			return nil, errors.New("Only responder should send in IK2 handshake")
 		}
 	}
 
@@ -314,7 +314,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 
 			return msg, err
 		} else {
-			return nil, errors.New("Only receiver should receive in XX1 handshake")
+			return nil, errors.New("Only responder should receive in XX1 handshake")
 		}
 
 	case XX2: // <- e, ee, s, es + payload
@@ -365,7 +365,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 
 			return msg, err
 		} else {
-			return nil, errors.New("Only receiver should receive in XX3 handshake")
+			return nil, errors.New("Only responder should receive in XX3 handshake")
 		}
 
 	case READY:
@@ -406,7 +406,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 			ns.PipeState++
 			return msg, err
 		} else {
-			return nil, errors.New("Only receiver should receive in IK1 handshake")
+			return nil, errors.New("Only responder should receive in IK1 handshake")
 		}
 
 	case IK2: // <- e, ee, se    + payload
