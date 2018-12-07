@@ -164,7 +164,8 @@ func debugf(format string, args ...interface{}) {
 func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 
 	// TODO: add IDs of some kind to handshake packets and retry them at this layer
-	// in the event of packet loss.
+	// in the event of packet loss.  Might mean adding more states to the state machine
+	// to distinguish 'need-to-send-XX2' from 'trying-to-send-XX2' etc.
 	// See https://noiseprotocol.org/noise.html#out-of-order-transport-messages
 	// and 'negotiation data' from
 	// https://noiseprotocol.org/noise.html#application-responsibilities
