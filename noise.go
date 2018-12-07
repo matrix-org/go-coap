@@ -38,8 +38,8 @@ const (
 )
 
 type KeyStore interface {
-	GetLocalKey() (*noise.DHKey, error)
-	SetLocalKey(*noise.DHKey) error
+	GetLocalKey() (noise.DHKey, error)
+	SetLocalKey(noise.DHKey) error
 
 	GetRemoteKey(net.Addr) ([]byte, error)
 	SetRemoteKey(net.Addr, []byte) error
@@ -75,8 +75,8 @@ func NewNoiseState(connection Conn, initiator bool, ks KeyStore) (*NoiseState, e
 		return nil, err
 	}
 
-	if static == nil {
-		*static, err = cs.GenerateKeypair(rng)
+	if static.Private == nil {
+		static, err = cs.GenerateKeypair(rng)
 		if err != nil {
 			return nil, err
 		}
@@ -89,7 +89,7 @@ func NewNoiseState(connection Conn, initiator bool, ks KeyStore) (*NoiseState, e
 		Rng:            rng,
 		connection:     connection,
 		keyStore:       ks,
-		LocalStaticKey: *static,
+		LocalStaticKey: static,
 		Initiator:      initiator,
 	}
 
@@ -156,11 +156,17 @@ func (ns *NoiseState) SetupIK() error {
 	return nil
 }
 
+func debugf(format string, args ...interface{}) {
+	format = "DEBUG: " + format
+	log.Printf(format, args...)
+}
+
 func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 	switch ns.PipeState {
 	case XX1: // -> e
 		if ns.Initiator {
 			ns.queuedMsg = msg
+			debugf("I Sending XX1: -> e");
 			msg, _, _, err := ns.Hs.WriteMessage(nil, nil)
 			if err != nil {
 				log.Printf("XX1 handshake encryption failed with %v", err)
@@ -179,7 +185,8 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 				return nil, errors.New("XX2 should only ever be called with a nil msg")
 			}
 
-			_, cs0, cs1, err := ns.Hs.WriteMessage(nil, nil)
+			debugf("R Sending XX2: <- e, ee, s, es + nil payload");
+			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, nil)
 			if err != nil {
 				log.Printf("XX2 handshake encryption failed with %v", err)
 				return nil, err
@@ -191,20 +198,20 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 			ns.keyStore.SetRemoteKey(ns.connection.RemoteAddr(), ns.Hs.PeerStatic())
 
 			ns.PipeState++
-			return nil, err
+			return msg, err
 		} else {
 			return nil, errors.New("Only receiver should send in XX2 handshake")
 		}
 
 	case XX3: // -> s, se + payload
 		if ns.Initiator {
-			// XXX: do we need to encrypt first? if so, with which CipherState?
-
+			debugf("I Sending XX3: -> s, se + encrypted payload %v", ns.queuedMsg);
 			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, ns.queuedMsg)
 			if err != nil {
 				log.Printf("XX3 handshake encryption failed with %v", err)
 				return nil, err
 			}
+			ns.queuedMsg = nil // just to avoid it hanging around and confusing debugging
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
 			ns.PipeState++
@@ -223,9 +230,9 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 		msg = cs.Encrypt(nil, nil, msg)
 		return msg, nil
 
-	case IK1: // -> e, es, s, ss
+	case IK1: // -> e, es, s, ss  + payload
 		if ns.Initiator {
-			// XXX: do we need to encrypt first? if so, with which CipherState?
+			debugf("I Sending IK1: -> e, es, s, ss + decrypted payload %v", msg);
 			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, msg)
 			if err != nil {
 				log.Printf("IK1 handshake encryption failed with %v", err)
@@ -241,7 +248,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 
 	case IK2: // <- e, ee, se    + payload
 		if !ns.Initiator {
-			// XXX: do we need to encrypt first?
+			debugf("R Sending IK2: <- e, ee, se + decrypted payload %v", msg);
 			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, msg)
 			if err != nil {
 				log.Printf("IK2 handshake encryption failed with %v", err)
@@ -256,17 +263,17 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 		}
 	}
 
+	log.Printf("Unrecognised pipe state %v whilst encrypting!", ns.PipeState)
 	return nil, errors.New("Unrecognised pipe state whilst encrypting!")
 }
 
-func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP) ([]byte, error) {
+func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPData *SessionUDPData) ([]byte, error) {
 	origMsg := msg
 
 	switch ns.PipeState {
 	case XX1: // -> e
 		if !ns.Initiator {
 			// N.B. this is only ever called during fallback from IK1.
-
 			msg, _, _, err := ns.Hs.ReadMessage(nil, msg)
 			if err != nil {
 				log.Printf("XX1 handshake decryption failed: %v", err)
@@ -275,6 +282,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP) ([]byte, erro
 			if msg != nil {
 				return nil, errors.New("Received unexpected payload in XX1 handshake")
 			}
+			debugf("R Receiving XX1: <- e");
 			ns.PipeState++
 
 			// we now trigger sending an XX2
@@ -284,13 +292,13 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP) ([]byte, erro
 				return nil, err
 			}
 
-			_, err = WriteToSessionUDP(connUDP.connection, res, nil)
+			_, err = WriteToSessionUDP(connUDP.connection, res, sessionUDPData)
 			if err != nil {
 				log.Printf("Failed to send an XX2 response to XX1 with %v", err)
 				return nil, err
 			}
 
-			return nil, err // XX1s have no payload so we have nothing to decrypt.
+			return msg, err
 		} else {
 			return nil, errors.New("Only receiver should receive in XX1 handshake")
 		}
@@ -305,6 +313,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP) ([]byte, erro
 			if msg != nil {
 				return nil, errors.New("Received unexpected payload in XX2 handshake")
 			}
+			debugf("I Receiving XX2: <- e, ee, s, es + payload %v", msg);
 
 			ns.PipeState++
 
@@ -316,12 +325,13 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP) ([]byte, erro
 				return nil, err
 			}
 
-			_, err = WriteToSessionUDP(connUDP.connection, res, nil)
+			_, err = WriteToSessionUDP(connUDP.connection, res, sessionUDPData)
 			if err != nil {
 				log.Printf("Failed to send XX3 response to XX2 with %v", err)
 				return nil, err
 			}
 
+			return msg, nil
 		} else {
 			return nil, errors.New("Only initiator should receive in XX2 handshake")
 		}
@@ -333,11 +343,10 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP) ([]byte, erro
 				log.Printf("XX3 handshake decryption failed with %v", err)
 				return nil, err
 			}
+			debugf("R Receiving XX3: -> s, se + decrypted payload %v", msg);
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
 			ns.PipeState++
-
-			// XXX: do we need to decrypt msg before returning?
 
 			return msg, err
 		} else {
@@ -364,16 +373,11 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP) ([]byte, erro
 		if !ns.Initiator {
 			msg, cs0, cs1, err := ns.Hs.ReadMessage(nil, msg)
 			if err != nil {
-				log.Printf("IK1 handshake decryption failed with %v", err)
-				return nil, err
-			}
-
-			msg, err = cs0.Decrypt(nil, nil, msg)
-			if err != nil {
-				log.Printf("Failed to decrypt IK1 with %v; switching to XXFallback (XX1)", err)
+				log.Printf("IK1 handshake decryption failed with %v; switching to XXfallback (XX1)", err)
 				ns.SetupXX()
-				return ns.DecryptMessage(origMsg, connUDP)
+				return ns.DecryptMessage(origMsg, connUDP, sessionUDPData)
 			}
+			debugf("R Receiving IK1: -> e, es, s, ss + decrypted payload %v", msg);
 
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
@@ -390,11 +394,10 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP) ([]byte, erro
 				log.Printf("IK2 handshake decryption failed with %v", err)
 				return nil, err
 			}
+			debugf("R Receiving IK2: <- e, ee, se + decrypted payload %v", msg);
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
 			ns.PipeState = READY
-
-			// XXX: do we need to decrypt msg before returning?
 
 			return msg, err
 		} else {
@@ -402,5 +405,6 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP) ([]byte, erro
 		}
 	}
 
+	log.Printf("Unrecognised pipe state %v whilst decrypting!", ns.PipeState)
 	return nil, errors.New("Unrecognised pipe state whilst decrypting!")
 }
