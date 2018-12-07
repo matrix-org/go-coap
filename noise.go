@@ -12,29 +12,29 @@ import (
 type NoisePipeState int
 
 const (
-	START NoisePipeState = 0 // our starting point
+	START NoisePipeState = iota // our starting point
 
 	// if we have no static key for our peer:
-	XX1 NoisePipeState = 1 // -> e
-	XX2 NoisePipeState = 2 // <- e, ee, s, es + payload  (initiator stores s as peer). Payload is empty given the responder has nothing yet to say.
-	XX3 NoisePipeState = 3 // -> s, se        + payload  (responder stores for that peer). Payload is the CoAP req from the initiator.
+	XX1 NoisePipeState // -> e
+	XX2 NoisePipeState // <- e, ee, s, es + payload  (initiator stores s as peer). Payload is empty given the responder has nothing yet to say.
+	XX3 NoisePipeState // -> s, se        + payload  (responder stores for that peer). Payload is the CoAP req from the initiator.
 
 	// and then we're established.
-	READY NoisePipeState = 4 // send & encrypt via respective CipherStates
+	READY NoisePipeState // send & encrypt via respective CipherStates
 
 	// else, if we have a static key for our peer:
-	IK1 NoisePipeState = 5 // -> e, es, s, ss + payload  (payload is CoAP req)
+	IK1 NoisePipeState // -> e, es, s, ss + payload  (payload is CoAP req)
 
 	// after receiving an IK1 we try to decrypt, and if decryption fails we assume the
 	// initiatior is instead trying to talk XX to us and so we treat it as an XX1 and
 	// switch to XXfallback instead.
 
-	IK2 NoisePipeState = 6 // <- e, ee, se    + payload  (payload is CoAP ack)
+	IK2 NoisePipeState // <- e, ee, se    + payload  (payload is CoAP ack)
 
 	// and then we're established again.
 
 	// If something goes wrong...
-	ERROR NoisePipeState = 7
+	ERROR NoisePipeState
 )
 
 type KeyStore interface {
@@ -180,7 +180,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 				log.Printf("XX1 handshake encryption failed with %v", err)
 				return nil, err
 			}
-			ns.PipeState++
+			ns.PipeState = XX2
 			return msg, err
 		} else {
 			return nil, errors.New("Only initiator should send in XX1 handshake")
@@ -205,7 +205,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 			// store the remote static key we've just learned about
 			ns.keyStore.SetRemoteKey(ns.connection.RemoteAddr(), ns.Hs.PeerStatic())
 
-			ns.PipeState++
+			ns.PipeState = XX3
 			return msg, err
 		} else {
 			return nil, errors.New("Only responder should send in XX2 handshake")
@@ -222,7 +222,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 			ns.queuedMsg = nil // just to avoid it hanging around and confusing debugging
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
-			ns.PipeState++
+			ns.PipeState = READY
 			return msg, err
 		} else {
 			return nil, errors.New("Only initiator should send in XX3 handshake")
@@ -254,7 +254,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 			}
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
-			ns.PipeState++
+			ns.PipeState = IK2
 			return msg, err
 		} else {
 			return nil, errors.New("Only initiator should send in IK1 handshake")
@@ -297,7 +297,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 				return nil, errors.New("Received unexpected payload in XX1 handshake")
 			}
 			debugf("R Receiving XX1: <- e")
-			ns.PipeState++
+			ns.PipeState = XX2
 
 			// we now trigger sending an XX2
 			res, err := ns.EncryptMessage(nil)
@@ -330,7 +330,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 			}
 			debugf("I Receiving XX2: <- e, ee, s, es + payload %v", msg)
 
-			ns.PipeState++
+			ns.PipeState = XX3
 
 			// at this point we need to trigger a send of the XX3 handshake immediately
 			// outside of the CoAP request lifecycle.
@@ -362,7 +362,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 			debugf("R Receiving XX3: -> s, se + decrypted payload %v", msg)
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
-			ns.PipeState++
+			ns.PipeState = READY
 
 			return msg, err
 		} else {
@@ -404,7 +404,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
-			ns.PipeState++
+			ns.PipeState = IK2
 			return msg, err
 		} else {
 			return nil, errors.New("Only responder should receive in IK1 handshake")
