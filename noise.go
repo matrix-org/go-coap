@@ -163,9 +163,11 @@ func debugf(format string, args ...interface{}) {
 
 func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 
-	// TODO: add sequence numbers to handshake packets and retry them at the noise layer
-	// in the event of packet loss.  (See "11.4. Out-of-order transport messages" from the
-	// noise spec)
+	// TODO: add IDs of some kind to handshake packets and retry them at the noise layer
+	// in the event of packet loss.
+	// See https://noiseprotocol.org/noise.html#out-of-order-transport-messages
+	// and 'negotiation data' from
+	// https://noiseprotocol.org/noise.html#application-responsibilities
 
 	switch ns.PipeState {
 	case XX1: // -> e
@@ -235,7 +237,8 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 
 		// TODO: derive an 8-bit nonce from our 64-bit nonce and prepend it to our payloads
 		// so that the receiver can set the correct nonce to decrypt the packets, given they
-		// may arrive out-of-order. See "11.4. Out-of-order transport messages"
+		// may arrive out-of-order.
+		// See https://noiseprotocol.org/noise.html#out-of-order-transport-messages
 
 		msg = cs.Encrypt(nil, nil, msg)
 		return msg, nil
@@ -302,6 +305,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 				return nil, err
 			}
 
+			// XXX: handle retries
 			_, err = WriteToSessionUDP(connUDP.connection, res, sessionUDPData)
 			if err != nil {
 				log.Printf("Failed to send an XX2 response to XX1 with %v", err)
@@ -335,6 +339,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 				return nil, err
 			}
 
+			// XXX: handle retries
 			_, err = WriteToSessionUDP(connUDP.connection, res, sessionUDPData)
 			if err != nil {
 				log.Printf("Failed to send XX3 response to XX2 with %v", err)
@@ -375,13 +380,13 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 		// and explicitly call SetNonce() on our `cs` so we can reliably decrypt
 		// out-of-order or missing messages.  We should also deduplicate at this point
 		// to stop replay attacks.
-		// See "11.4. Out-of-order transport messages"
+		// See https://noiseprotocol.org/noise.html#out-of-order-transport-messages
 
 		msg, err := cs.Decrypt(nil, nil, msg)
 		if err != nil {
 			log.Printf("Failed to decrypt with %v", err)
 
-			// FIXME: we should switch to state error at this point and re-handshake
+			// FIXME: we should probably switch to state ERROR at this point and re-handshake
 		}
 
 		return msg, err
