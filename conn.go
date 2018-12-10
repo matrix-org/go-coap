@@ -211,26 +211,22 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 			compressed = buf.Bytes()
 		}
 
+		conn.connection.SetWriteDeadline(time.Now().Add(writeTimeout))
+
 		var msg []byte
 		if srv.Encryption {
 			ns := wreqUDP.ns
 			// log.Printf("encrypting %d bytes with %+v as %v", len(compressed), ns, compressed)
-			msg, err = ns.EncryptMessage(compressed)
+			err = ns.EncryptAndSendMessage(compressed, conn.connection, wreqUDP.sessionData)
 			if err != nil {
 				log.Printf("failed to encrypt message: %v", err)
 				return err
 			}
-			// log.Printf("encrypted %d bytes with %+v as %v", len(msg), ns, msg)
-			// log.Printf("encrypted %d->%d bytes with %+v", len(compressed), len(msg), ns)
 		} else {
 			msg = compressed
+			_, err = WriteToSessionUDP(conn.connection, msg, wreqUDP.sessionData)
+			return err
 		}
-
-		//log.Printf("sending %d bytes to conn %p", len(msg), conn)
-
-		conn.connection.SetWriteDeadline(time.Now().Add(writeTimeout))
-		_, err = WriteToSessionUDP(conn.connection, msg, wreqUDP.sessionData)
-		return err
 	})
 }
 

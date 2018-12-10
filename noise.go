@@ -15,26 +15,26 @@ const (
 	START NoisePipeState = iota // our starting point
 
 	// if we have no static key for our peer:
-	XX1 NoisePipeState // -> e
-	XX2 NoisePipeState // <- e, ee, s, es + payload  (initiator stores s as peer). Payload is empty given the responder has nothing yet to say.
-	XX3 NoisePipeState // -> s, se        + payload  (responder stores for that peer). Payload is the CoAP req from the initiator.
+	XX1 // -> e
+	XX2 // <- e, ee, s, es + payload  (initiator stores s as peer). Payload is empty given the responder has nothing yet to say.
+	XX3 // -> s, se        + payload  (responder stores for that peer). Payload is the CoAP req from the initiator.
 
 	// and then we're established.
-	READY NoisePipeState // send & encrypt via respective CipherStates
+	READY // send & encrypt via respective CipherStates
 
 	// else, if we have a static key for our peer:
-	IK1 NoisePipeState // -> e, es, s, ss + payload  (payload is CoAP req)
+	IK1 // -> e, es, s, ss + payload  (payload is CoAP req)
 
 	// after receiving an IK1 we try to decrypt, and if decryption fails we assume the
 	// initiatior is instead trying to talk XX to us and so we treat it as an XX1 and
 	// switch to XXfallback instead.
 
-	IK2 NoisePipeState // <- e, ee, se    + payload  (payload is CoAP ack)
+	IK2 // <- e, ee, se    + payload  (payload is CoAP ack)
 
 	// and then we're established again.
 
 	// If something goes wrong...
-	ERROR NoisePipeState
+	ERROR
 )
 
 type KeyStore interface {
@@ -57,7 +57,7 @@ type NoiseState struct {
 	Cs0             *noise.CipherState // the cipher used by the initiator to send (and the responder to receive)
 	Cs1             *noise.CipherState // the cipher used by the initiator to receive (and the responder to send)
 	Initiator       bool
-	queuedMsg       []byte
+	msgQueue        [][]byte
 }
 
 func NewNoiseState(connection Conn, initiator bool, ks KeyStore) (*NoiseState, error) {
@@ -91,6 +91,7 @@ func NewNoiseState(connection Conn, initiator bool, ks KeyStore) (*NoiseState, e
 		keyStore:       ks,
 		LocalStaticKey: static,
 		Initiator:      initiator,
+		msgQueue:       make([][]byte, 0),
 	}
 
 	ns.RemoteStaticKey, err = ks.GetRemoteKey(connection.RemoteAddr())
@@ -161,19 +162,26 @@ func debugf(format string, args ...interface{}) {
 	// log.Printf(format, args...)
 }
 
-func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
+func (ns *NoiseState) EncryptAndSendMessage(msg []byte, connUDP *connUDP, sessionUDPData *SessionUDPData) error {
 
 	// TODO: add IDs of some kind to handshake packets and retry them at this layer
 	// in the event of packet loss.  Might mean adding more states to the state machine
-	// to distinguish 'need-to-send-XX2' from 'trying-to-send-XX2' etc.
+	// to distinguish 'need-to-send-XX2' from 'trying-to-send-XX2' etc.  Or we could try
+	// to hijack CoAP's retry mechanisms?
+	//
 	// See https://noiseprotocol.org/noise.html#out-of-order-transport-messages
 	// and 'negotiation data' from
 	// https://noiseprotocol.org/noise.html#application-responsibilities
+	//
+	// See also https://moderncrypto.org/mail-archive/noise/2018/001921.html
+
+	if msg != nil {
+		ns.msgQueue = append(ns.msgQueue, msg)
+	}
 
 	switch ns.PipeState {
 	case XX1: // -> e
 		if ns.Initiator {
-			ns.queuedMsg = msg
 			debugf("I Sending XX1: -> e")
 			msg, _, _, err := ns.Hs.WriteMessage(nil, nil)
 			if err != nil {
@@ -181,18 +189,16 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 				return nil, err
 			}
 			ns.PipeState = XX2
-			return msg, err
+
+			_, err = WriteToSessionUDP(connUDP.connection, msg, sessionUDPData)
+			return err
 		} else {
-			return nil, errors.New("Only initiator should send in XX1 handshake")
+			log.Printf("Only initiator should send in XX1 handshake; queuing msg")
 		}
 
 	case XX2: // <- e, ee, s, es + payload
 		if !ns.Initiator {
 			// we don't use a payload as this is only ever called in response to an XX1 handshake.
-			if msg != nil {
-				return nil, errors.New("XX2 should only ever be called with a nil msg")
-			}
-
 			debugf("R Sending XX2: <- e, ee, s, es + nil payload")
 			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, nil)
 			if err != nil {
@@ -206,14 +212,16 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 			ns.keyStore.SetRemoteKey(ns.connection.RemoteAddr(), ns.Hs.PeerStatic())
 
 			ns.PipeState = XX3
-			return msg, err
+			_, err = WriteToSessionUDP(connUDP.connection, msg, sessionUDPData)
+			return err
 		} else {
-			return nil, errors.New("Only responder should send in XX2 handshake")
+			log.Printf("Only responder should send in XX2 handshake; queuing msg")
 		}
 
 	case XX3: // -> s, se + payload
 		if ns.Initiator {
-			debugf("I Sending XX3: -> s, se + encrypted payload %v", ns.queuedMsg)
+			msg, ns.msgQueue = ns.msgQueue[0], ns.msgQueue[1:]
+			debugf("I Sending XX3: -> s, se + encrypted payload %v", msg)
 			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, ns.queuedMsg)
 			if err != nil {
 				log.Printf("XX3 handshake encryption failed with %v", err)
@@ -223,9 +231,11 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
 			ns.PipeState = READY
-			return msg, err
+
+			_, err = WriteToSessionUDP(connUDP.connection, msg, sessionUDPData)
+			return err
 		} else {
-			return nil, errors.New("Only initiator should send in XX3 handshake")
+			log.Printf("Only initiator should send in XX3 handshake; queuing msg")
 		}
 
 	case READY:
@@ -241,12 +251,21 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 		// may arrive out-of-order.
 		// See https://noiseprotocol.org/noise.html#out-of-order-transport-messages
 
-		msg = cs.Encrypt(nil, nil, msg)
-		return msg, nil
+		for _, msg = range ns.msgQueue {
+			msg = cs.Encrypt(nil, nil, msg)
+			_, err = WriteToSessionUDP(connUDP.connection, msg, sessionUDPData)
+			if err != nil {
+				return err
+			}
+		}
+		ns.msgQueue = nil
+
+		return nil
 
 	case IK1: // -> e, es, s, ss  + payload
 		if ns.Initiator {
-			debugf("I Sending IK1: -> e, es, s, ss + decrypted payload %v", msg)
+			msg, ns.msgQueue = ns.msgQueue[0], ns.msgQueue[1:]
+			debugf("I Sending IK1: -> e, es, s, ss + not-yet-encrypted payload %v", msg)
 			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, msg)
 			if err != nil {
 				log.Printf("IK1 handshake encryption failed with %v", err)
@@ -255,14 +274,16 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
 			ns.PipeState = IK2
-			return msg, err
+			_, err = WriteToSessionUDP(connUDP.connection, msg, sessionUDPData)
+			return err
 		} else {
-			return nil, errors.New("Only initiator should send in IK1 handshake")
+			log.Printf("Only initiator should send in IK1 handshake; queuing msg")
 		}
 
 	case IK2: // <- e, ee, se    + payload
 		if !ns.Initiator {
-			debugf("R Sending IK2: <- e, ee, se + decrypted payload %v", msg)
+			msg, ns.msgQueue = ns.msgQueue[0], ns.msgQueue[1:]
+			debugf("R Sending IK2: <- e, ee, se + not-yet-encrypted payload %v", msg)
 			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, msg)
 			if err != nil {
 				log.Printf("IK2 handshake encryption failed with %v", err)
@@ -271,9 +292,10 @@ func (ns *NoiseState) EncryptMessage(msg []byte) ([]byte, error) {
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
 			ns.PipeState = READY
-			return msg, err
+			_, err = WriteToSessionUDP(connUDP.connection, msg, sessionUDPData)
+			return err
 		} else {
-			return nil, errors.New("Only responder should send in IK2 handshake")
+			log.Printf("Only responder should send in IK2 handshake; queuing msg")
 		}
 	}
 
@@ -300,7 +322,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 			ns.PipeState = XX2
 
 			// we now trigger sending an XX2
-			res, err := ns.EncryptMessage(nil)
+			res, err := ns.EncryptAndSendMessage(nil, connUDP, sessionUDPData)
 			if err != nil {
 				log.Printf("Failed to calculate XX2 response to XX1 with %v", err)
 				return nil, err
@@ -334,7 +356,7 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 
 			// at this point we need to trigger a send of the XX3 handshake immediately
 			// outside of the CoAP request lifecycle.
-			res, err := ns.EncryptMessage(nil)
+			res, err := ns.EncryptAndSendMessage(nil, connUDP, sessionUDPData)
 			if err != nil {
 				log.Printf("Failed to calculate XX3 response to XX2 with %v", err)
 				return nil, err
