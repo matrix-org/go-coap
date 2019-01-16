@@ -200,6 +200,41 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 			return err
 		}
 
+		// TODO:
+		//
+		// before compressing, we have to move the coap headers to the cleartext payload
+		// we move:
+		//
+		//  0                   1                   2                   3
+		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		// |Ver| T |  TKL  |      Code     |          Message ID           |
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		// |   Token (if any, TKL bytes) ...
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+		// We leave the options and subsequent CBOR payloads however encrypted.
+
+		// We calculate an 8-bit sequence number at this point from the noise
+		// handshake state's nonce, and append it to the headers - we need
+		// this to do reordering on receipt to hand the
+		// packets to noise in the write order and without dups or gaps.
+
+		// We package up our XX and IK noise handshakes with the same headers
+		// as if they were CoAP.  No token is needed.  We'll need to pick a
+		// custom CoAP code.  Suggestion:
+
+		// Handshake | CoAP Type | CoAP Code |
+		// ----------|-----------|-----------|
+		// XX1       | 0         | 250       |
+		// XX2       | 2         | 250       |
+		// XX3       | 1         | 251       |
+		// IK1       | 0         | 252       |
+		// IK2       | 2         | 252       |
+
+		// We could be naughty and set Ver=011b rather than 001b to indicate
+		// that encryption is turned on, in order to negotiate it more elegantly
+
 		var compressed []byte
 		if srv.Compressor != nil {
 			compressed, err = srv.Compressor.CompressPayload(buf.Bytes())
@@ -227,6 +262,13 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 			_, err = WriteToSessionUDP(conn.connection, msg, wreqUDP.sessionData)
 			return err
 		}
+
+		// TODO:
+		// Rather than having noise send directly or handle retries itself, noise needs to pass
+		// back the payload and we then retry (re)sending it here, as a bunch of bits.
+		//
+		// We need to track the msgid+token pair of the confirmable messages being sent, so we know when to
+		// keep retrying.  (As when we receive the ID of the response, we should stop retrying.)
 	})
 }
 

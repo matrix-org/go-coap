@@ -165,9 +165,8 @@ func debugf(format string, args ...interface{}) {
 func (ns *NoiseState) EncryptAndSendMessage(msg []byte, connUDP *connUDP, sessionUDPData *SessionUDPData) error {
 
 	// TODO: add IDs of some kind to handshake packets and retry them at this layer
-	// in the event of packet loss.  Might mean adding more states to the state machine
-	// to distinguish 'need-to-send-XX2' from 'trying-to-send-XX2' etc.  Or we could try
-	// to hijack CoAP's retry mechanisms?
+	// in the event of packet loss. This should be handled by the proposed retry
+	// layer at the conn layer.
 	//
 	// See https://noiseprotocol.org/noise.html#out-of-order-transport-messages
 	// and 'negotiation data' from
@@ -327,7 +326,8 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 				return nil, err
 			}
 
-			// XXX: handle retries
+			// TODO: handle retries by passing the packet back to the caller
+			// so it can go and handle retries.
 			_, err = WriteToSessionUDP(connUDP.connection, res, sessionUDPData)
 			if err != nil {
 				log.Printf("Failed to send an XX2 response to XX1 with %v", err)
@@ -361,7 +361,8 @@ func (ns *NoiseState) DecryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 				return nil, err
 			}
 
-			// XXX: handle retries
+			// TODO: handle retries by passing the packet back to the caller
+			// so it can go and handle retries.
 			_, err = WriteToSessionUDP(connUDP.connection, res, sessionUDPData)
 			if err != nil {
 				log.Printf("Failed to send XX3 response to XX2 with %v", err)
