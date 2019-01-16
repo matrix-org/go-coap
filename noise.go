@@ -222,12 +222,11 @@ func (ns *NoiseState) EncryptAndSendMessage(msg []byte, connUDP *connUDP, sessio
 		if ns.Initiator {
 			msg, ns.msgQueue = ns.msgQueue[0], ns.msgQueue[1:]
 			debugf("I Sending XX3: -> s, se + encrypted payload %v", msg)
-			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, ns.queuedMsg)
+			msg, cs0, cs1, err := ns.Hs.WriteMessage(nil, msg)
 			if err != nil {
 				log.Printf("XX3 handshake encryption failed with %v", err)
 				return nil, err
 			}
-			ns.queuedMsg = nil // just to avoid it hanging around and confusing debugging
 			ns.Cs0 = cs0
 			ns.Cs1 = cs1
 			ns.PipeState = READY
