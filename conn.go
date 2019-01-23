@@ -2,7 +2,11 @@ package coap
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
+	"io"
 	"log"
+	"math/rand"
 	"net"
 	"sync/atomic"
 	"time"
@@ -166,6 +170,23 @@ func (conn *connTCP) writeHandler(srv *Server) bool {
 type connUDP struct {
 	connBase
 	connection *net.UDPConn // i/o connection if UDP was used
+	seqnum     uint8
+	msgQueue   map[uint16]queueEl
+	rRand      *rand.Rand
+}
+
+// We need to store sequence numbers in the queue in order to detect and measure
+// holes in the message queue, e.g. we'd need to re-handshake if we observe a
+// gap higher than 128 msgs (max(seqnum)/2).
+type queueEl struct {
+	ch     chan bool
+	seqnum uint8
+}
+
+type retryHeaders struct {
+	seqnum uint8
+	nps    NoisePipeState
+	msgID  uint16
 }
 
 func (conn *connUDP) LocalAddr() net.Addr {
@@ -180,8 +201,105 @@ func (conn *connUDP) SetReadDeadline(timeout time.Time) error {
 	return conn.connection.SetReadDeadline(timeout)
 }
 
-func (conn *connUDP) ReadFromSessionUDP(m []byte) (int, *SessionUDPData, error) {
-	return ReadFromSessionUDP(conn.connection, m)
+func (conn *connUDP) ReadFromSessionUDP(m []byte) (int, *SessionUDPData, retryHeaders, error) {
+	var tmp = make([]byte, len(m), cap(m))
+
+	copy(tmp, m)
+
+	i, s, err := ReadFromSessionUDP(conn.connection, tmp)
+	if err != nil {
+		return i, s, retryHeaders{}, err
+	}
+
+	// Check whether the message is one we hand-wrapped. If it's not, end the
+	// process here.
+	if m[0]>>6 != 3 {
+		return i, s, retryHeaders{}, err
+	}
+
+	// Extract the headers we placed. These will take the following form:
+	//  0                   1                   2                   3
+	//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	// |Ver| T |  TKL  |      Code     |          Message ID           |
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	// |   Token (if any, TKL bytes) ...
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	// |Sequence number|
+	// +-+-+-+-+-+-+-+-+
+	// We only really care about the type, code, message ID and sequence number.
+
+	var t, tkl, code, seqnum uint8
+	var messageID uint16
+
+	// Type
+	t = tmp[0] >> 4 & 0x3
+	// Token length, needed to know the end of the token header so we can grab
+	// the sequence number that's located right after it.
+	tkl = tmp[0] & 0xf
+	tkEnd := 4 + tkl
+	// Code
+	code = tmp[1]
+	// Message ID
+	messageID = uint16(tmp[2])<<8 | uint16(tmp[3])
+	// Sequence number
+	seqnum = tmp[tkEnd]
+
+	// Copy the encrypted payload's content to the i/o slice.
+	copy(m, tmp[tkEnd+1:])
+
+	// If we're waiting for a message with this ID, notify the queue we got it.
+	if conn.msgQueue != nil {
+		if el, ok := conn.msgQueue[messageID]; ok {
+			el.ch <- true
+		}
+	}
+
+	// If state is READY then the payload should be decrypted using the sequence
+	// number. Otherwise, we just let the noise pipeline do its job.
+	state := getNoisePipelineState(t, code)
+
+	h := retryHeaders{
+		seqnum: seqnum,
+		msgID:  messageID,
+		nps:    state,
+	}
+
+	return i, s, h, err
+}
+
+func getNoisePipelineState(t, code uint8) NoisePipeState {
+	// Handshake | CoAP Type | CoAP Code |
+	// ----------|-----------|-----------|
+	// XX1       | 0 (CON)   | 250       |
+	// XX2       | 2 (ACK)   | 250       |
+	// XX3       | 1 (NON)   | 251       |
+	// IK1       | 0 (CON)   | 252       |
+	// IK2       | 2 (ACK)   | 252       |
+	switch code {
+	case 250:
+		// XX1 or XX2
+		if COAPType(t) == Confirmable {
+			return XX1
+		}
+
+		if COAPType(t) == Acknowledgement {
+			return XX2
+		}
+	case 251:
+		return XX3
+	case 252:
+		// IK1 or IK2
+		if COAPType(t) == Confirmable {
+			return IK1
+		}
+
+		if COAPType(t) == Acknowledgement {
+			return IK2
+		}
+	}
+
+	return READY
 }
 
 func (conn *connUDP) Close() error {
@@ -226,14 +344,16 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 
 		// Handshake | CoAP Type | CoAP Code |
 		// ----------|-----------|-----------|
-		// XX1       | 0         | 250       |
-		// XX2       | 2         | 250       |
-		// XX3       | 1         | 251       |
-		// IK1       | 0         | 252       |
-		// IK2       | 2         | 252       |
+		// XX1       | 0 (CON)   | 250       |
+		// XX2       | 2 (ACK)   | 250       |
+		// XX3       | 1 (NON)   | 251       |
+		// IK1       | 0 (CON)   | 252       |
+		// IK2       | 2 (ACK)   | 252       |
 
 		// We could be naughty and set Ver=011b rather than 001b to indicate
 		// that encryption is turned on, in order to negotiate it more elegantly
+
+		//  On sending the response to a
 
 		var compressed []byte
 		if srv.Compressor != nil {
@@ -250,13 +370,32 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 
 		var msg []byte
 		if srv.Encryption {
+			buf = new(bytes.Buffer)
 			ns := wreqUDP.ns
+
 			// log.Printf("encrypting %d bytes with %+v as %v", len(compressed), ns, compressed)
-			err = ns.EncryptAndSendMessage(compressed, conn.connection, wreqUDP.sessionData)
+			msg, err = ns.EncryptMessage(compressed, conn, wreqUDP.sessionData)
 			if err != nil {
 				log.Printf("failed to encrypt message: %v", err)
 				return err
 			}
+
+			var mID uint16
+			if mID, err = conn.SetCoapHeaders(buf, data, ns.PipeState, 0); err != nil {
+				return err
+			}
+
+			if _, err = buf.Write(msg); err != nil {
+				return err
+			}
+
+			_, err = WriteToSessionUDP(conn.connection, buf.Bytes(), wreqUDP.sessionData)
+			if err != nil {
+				return err
+			}
+
+			// TODO: Figure out a sensible value for timeToRetry.
+			go conn.scheduleRetry(mID, 30*time.Second)
 		} else {
 			msg = compressed
 			_, err = WriteToSessionUDP(conn.connection, msg, wreqUDP.sessionData)
@@ -269,7 +408,142 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 		//
 		// We need to track the msgid+token pair of the confirmable messages being sent, so we know when to
 		// keep retrying.  (As when we receive the ID of the response, we should stop retrying.)
+		//
+		// We may need a mechanism to unwedge wedged noisepipes	(e.g. actively rehandshake if the retry
+		// schedule expires or if )
+
+		// Increment the sequence number for the next message.
+		conn.seqnum++
+
+		return nil
 	})
+}
+
+func (conn *connUDP) scheduleRetry(mID uint16, timeToRetry time.Duration) {
+	ch := make(chan bool)
+
+	// First run for this connection, initialise the queue.
+	if conn.msgQueue == nil {
+		conn.msgQueue = make(map[uint16]queueEl)
+	}
+
+	// We don't check if there's already a channel for this ID - if there is
+	// it's very likely to have belonged to an old request.
+	conn.msgQueue[mID] = queueEl{
+		seqnum: conn.seqnum,
+		ch:     ch,
+	}
+
+	select {
+	case _ = <-ch:
+		// Cancel retry
+		return
+	case <-time.After(timeToRetry):
+		// Wait a bit more then retry
+		conn.scheduleRetry(mID, timeToRetry*2)
+	}
+}
+
+func (conn *connUDP) SetCoapHeaders(buf io.Writer, m Message, nps NoisePipeState, msgID uint16) (mID uint16, err error) {
+	var v, t, c uint8
+
+	// Token is only needed if we're not handshaking.
+	var token = make([]byte, 0)
+
+	// We need to define a message ID here if we're handshaking.
+	var handshakeMsgID = uint16(conn.rRand.Uint32())
+
+	// Ver = 011b instead of 001b indicates that encryption is turned on.
+	v = 3
+
+	// Handshake | CoAP Type | CoAP Code |
+	// ----------|-----------|-----------|
+	// XX1       | 0 (CON)   | 250       |
+	// XX2       | 2 (ACK)   | 250       |
+	// XX3       | 1 (NON)   | 251       |
+	// IK1       | 0 (CON)   | 252       |
+	// IK2       | 2 (ACK)   | 252       |
+	switch nps {
+	case XX1:
+		t = 0
+		c = 250
+		mID = handshakeMsgID
+	case XX2:
+		t = 2
+		c = 250
+		mID = handshakeMsgID
+	case XX3:
+		t = 1
+		c = 251
+		mID = handshakeMsgID
+	case IK1:
+		t = 0
+		c = 252
+		mID = handshakeMsgID
+	case IK2:
+		t = 2
+		c = 252
+		mID = handshakeMsgID
+	default:
+		if m == nil {
+			err = errors.New("Message can't be nil outside of handshake")
+			return
+		}
+
+		t = uint8(m.Type())
+		c = uint8(m.Code())
+		token = m.Token()
+		mID = m.MessageID()
+	}
+
+	if msgID != 0 {
+		mID = msgID
+	}
+
+	// MessageID is 16bit, so we split it into two bytes (since we can only put
+	// bytes into our writer)
+	tmpbuf := []byte{0, 0}
+	binary.BigEndian.PutUint16(tmpbuf, mID)
+
+	//  0                   1                   2                   3
+	//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	// |Ver| T |  TKL  |      Code     |          Message ID           |
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	if _, err = buf.Write([]byte{
+		(v << 6) | (t << 4) | uint8(len(token)),
+		byte(c),
+		tmpbuf[0], tmpbuf[1],
+	}); err != nil {
+		return
+	}
+
+	if m != nil {
+		//  0                   1                   2                   3
+		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		// |   Token (if any, TKL bytes) ...
+		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+		// Token can be 0 to 8 bytes long
+		if len(m.Token()) > MaxTokenSize {
+			err = ErrInvalidTokenLen
+			return
+		}
+		if _, err = buf.Write(m.Token()); err != nil {
+			return
+		}
+	}
+
+	//  0
+	//  0 1 2 3 4 5 6 7
+	// +-+-+-+-+-+-+-+-+
+	// |    Seq num    |
+	// +-+-+-+-+-+-+-+-+
+	if _, err = buf.Write([]byte{byte(conn.seqnum)}); err != nil {
+		return
+	}
+
+	return
 }
 
 func newConnectionTCP(c net.Conn, srv *Server) Conn {
@@ -279,8 +553,15 @@ func newConnectionTCP(c net.Conn, srv *Server) Conn {
 }
 
 func newConnectionUDP(c *net.UDPConn, srv *Server) Conn {
+	rSource := rand.NewSource(time.Now().UnixNano())
+	rRand := rand.New(rSource)
 
-	connection := &connUDP{connBase: connBase{writeChan: make(chan writeReq, 10000), closeChan: make(chan bool), finChan: make(chan bool), closed: 0}, connection: c}
+	connection := &connUDP{
+		connBase:   connBase{writeChan: make(chan writeReq, 10000), closeChan: make(chan bool), finChan: make(chan bool), closed: 0},
+		connection: c,
+		msgQueue:   make(map[uint16]queueEl),
+		rRand:      rRand,
+	}
 
 	//log.Printf("newConnectionUDP called with conn=%p", connection)
 	//debug.PrintStack()
