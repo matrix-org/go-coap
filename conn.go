@@ -208,12 +208,14 @@ func (conn *connUDP) ReadFromSessionUDP(m []byte) (int, *SessionUDPData, retryHe
 
 	i, s, err := ReadFromSessionUDP(conn.connection, tmp)
 	if err != nil {
+		copy(m, tmp)
 		return i, s, retryHeaders{}, err
 	}
 
 	// Check whether the message is one we hand-wrapped. If it's not, end the
 	// process here.
 	if m[0]>>6 != 3 {
+		copy(m, tmp)
 		return i, s, retryHeaders{}, err
 	}
 
