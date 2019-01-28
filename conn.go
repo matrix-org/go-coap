@@ -201,22 +201,15 @@ func (conn *connUDP) SetReadDeadline(timeout time.Time) error {
 	return conn.connection.SetReadDeadline(timeout)
 }
 
-func (conn *connUDP) ReadFromSessionUDP(m []byte) (int, *SessionUDPData, retryHeaders, error) {
-	var tmp = make([]byte, len(m), cap(m))
+func (conn *connUDP) ReadFromSessionUDP(m []byte) (int, *SessionUDPData, error) {
+	return ReadFromSessionUDP(conn.connection, m)
+}
 
-	copy(tmp, m)
-
-	i, s, err := ReadFromSessionUDP(conn.connection, tmp)
-	if err != nil {
-		copy(m, tmp)
-		return i, s, retryHeaders{}, err
-	}
-
+func (conn *connUDP) extractRetryHeaders(m []byte) (h retryHeaders, pl []byte) {
 	// Check whether the message is one we hand-wrapped. If it's not, end the
 	// process here.
 	if m[0]>>6 != 3 {
-		copy(m, tmp)
-		return i, s, retryHeaders{}, err
+		return retryHeaders{}, m
 	}
 
 	// Extract the headers we placed. These will take the following form:
@@ -235,20 +228,20 @@ func (conn *connUDP) ReadFromSessionUDP(m []byte) (int, *SessionUDPData, retryHe
 	var messageID uint16
 
 	// Type
-	t = tmp[0] >> 4 & 0x3
+	t = m[0] >> 4 & 0x3
 	// Token length, needed to know the end of the token header so we can grab
 	// the sequence number that's located right after it.
-	tkl = tmp[0] & 0xf
+	tkl = m[0] & 0xf
 	tkEnd := 4 + tkl
 	// Code
-	code = tmp[1]
+	code = m[1]
 	// Message ID
-	messageID = uint16(tmp[2])<<8 | uint16(tmp[3])
+	messageID = uint16(m[2])<<8 | uint16(m[3])
 	// Sequence number
-	seqnum = tmp[tkEnd]
+	seqnum = m[tkEnd]
 
 	// Copy the encrypted payload's content to the i/o slice.
-	copy(m, tmp[tkEnd+1:])
+	pl = m[tkEnd+1:]
 
 	// If we're waiting for a message with this ID, notify the queue we got it.
 	if conn.msgQueue != nil {
@@ -261,13 +254,13 @@ func (conn *connUDP) ReadFromSessionUDP(m []byte) (int, *SessionUDPData, retryHe
 	// number. Otherwise, we just let the noise pipeline do its job.
 	state := getNoisePipelineState(t, code)
 
-	h := retryHeaders{
+	h = retryHeaders{
 		seqnum: seqnum,
 		msgID:  messageID,
 		nps:    state,
 	}
 
-	return i, s, h, err
+	return
 }
 
 func getNoisePipelineState(t, code uint8) NoisePipeState {
@@ -465,7 +458,7 @@ func (conn *connUDP) SetCoapHeaders(buf io.Writer, m Message, nps NoisePipeState
 	// XX3       | 1 (NON)   | 251       |
 	// IK1       | 0 (CON)   | 252       |
 	// IK2       | 2 (ACK)   | 252       |
-	switch nps {
+	switch nps - 1 {
 	case XX1:
 		t = 0
 		c = 250
@@ -520,20 +513,18 @@ func (conn *connUDP) SetCoapHeaders(buf io.Writer, m Message, nps NoisePipeState
 		return
 	}
 
-	if m != nil {
-		//  0                   1                   2                   3
-		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-		// |   Token (if any, TKL bytes) ...
-		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-		// Token can be 0 to 8 bytes long
-		if len(m.Token()) > MaxTokenSize {
-			err = ErrInvalidTokenLen
-			return
-		}
-		if _, err = buf.Write(m.Token()); err != nil {
-			return
-		}
+	//  0                   1                   2                   3
+	//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	// |   Token (if any, TKL bytes) ...
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	// Token can be 0 to 8 bytes long
+	if len(token) > MaxTokenSize {
+		err = ErrInvalidTokenLen
+		return
+	}
+	if _, err = buf.Write(token); err != nil {
+		return
 	}
 
 	//  0

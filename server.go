@@ -569,7 +569,9 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			return err
 		}
 		m = m[:cap(m)]
-		n, s, h, err := connUDP.ReadFromSessionUDP(m)
+		n, s, err := connUDP.ReadFromSessionUDP(m)
+		var h retryHeaders
+		h, m = connUDP.extractRetryHeaders(m)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Temporary() {
 				continue
@@ -622,7 +624,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			var decrypted bool
 			m, toSend, decrypted, err = ns.DecryptMessage(m, h.nps, h.seqnum, connUDP, s)
 			if err != nil {
-				log.Printf("Failed to decrypt message due to %v", err)
+				log.Printf("ERROR: Failed to decrypt message: %v", err)
 				continue
 			}
 
