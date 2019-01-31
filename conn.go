@@ -169,18 +169,16 @@ func (conn *connTCP) writeHandler(srv *Server) bool {
 
 type connUDP struct {
 	connBase
-	connection *net.UDPConn // i/o connection if UDP was used
-	seqnum     uint8
-	msgQueue   map[uint16]queueEl
-	rRand      *rand.Rand
+	connection   *net.UDPConn // i/o connection if UDP was used
+	seqnum       uint8
+	retriesQueue *RetriesQueue
+	rRand        *rand.Rand
+	msgBuf       []bufMsg // messages waiting to be sent, e.g. during a handshake
 }
 
-// We need to store sequence numbers in the queue in order to detect and measure
-// holes in the message queue, e.g. we'd need to re-handshake if we observe a
-// gap higher than 128 msgs (max(seqnum)/2).
-type queueEl struct {
-	ch     chan bool
-	seqnum uint8
+type bufMsg struct {
+	b []byte  // We might do compression so we can't just call MarshalBinary
+	m Message // Kept for metadata access
 }
 
 type retryHeaders struct {
@@ -243,12 +241,9 @@ func (conn *connUDP) extractRetryHeaders(m []byte) (h retryHeaders, pl []byte) {
 	// Copy the encrypted payload's content to the i/o slice.
 	pl = m[tkEnd+1:]
 
-	// If we're waiting for a message with this ID, notify the queue we got it.
-	if conn.msgQueue != nil {
-		if el, ok := conn.msgQueue[messageID]; ok {
-			el.ch <- true
-		}
-	}
+	debugf("Received message using CoAP version %d, of type %d and code %d, and with message ID %d, token of length %d, and sequence number %d\n", m[0]>>6, t, code, messageID, tkl, uint8(seqnum))
+
+	conn.retriesQueue.CancelRetrySchedule(messageID)
 
 	// If state is READY then the payload should be decrypted using the sequence
 	// number. Otherwise, we just let the noise pipeline do its job.
@@ -368,6 +363,18 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 			buf = new(bytes.Buffer)
 			ns := wreqUDP.ns
 
+			nps := ns.PipeState
+
+			// If we're doing a handshake we'll want to queue up the message
+			// until the handshake is over.
+
+			// TODO: We also want to special-case XX3 since we're going to
+			// piggyback the encrypted message on it. But here's not where that
+			// part of the magic happens.
+			if nps != READY {
+				conn.msgBuf = append(conn.msgBuf, bufMsg{b: compressed, m: data})
+			}
+
 			// log.Printf("encrypting %d bytes with %+v as %v", len(compressed), ns, compressed)
 			msg, err = ns.EncryptMessage(compressed, conn, wreqUDP.sessionData)
 			if err != nil {
@@ -376,7 +383,7 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 			}
 
 			var mID uint16
-			if mID, err = conn.SetCoapHeaders(buf, data, ns.PipeState, 0); err != nil {
+			if mID, err = conn.SetCoapHeaders(buf, data, nps, 0); err != nil {
 				return err
 			}
 
@@ -389,8 +396,10 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 				return err
 			}
 
-			// TODO: Figure out a sensible value for timeToRetry.
-			go conn.scheduleRetry(mID, 30*time.Second)
+			if data.Type() == Confirmable {
+				// TODO: Figure out a sensible value for timeToRetry.
+				go conn.retriesQueue.ScheduleRetry(mID, 30*time.Second, buf.Bytes(), wreqUDP.sessionData, conn.connection)
+			}
 		} else {
 			msg = compressed
 			_, err = WriteToSessionUDP(conn.connection, msg, wreqUDP.sessionData)
@@ -405,7 +414,7 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 		// keep retrying.  (As when we receive the ID of the response, we should stop retrying.)
 		//
 		// We may need a mechanism to unwedge wedged noisepipes	(e.g. actively rehandshake if the retry
-		// schedule expires or if )
+		// schedule expires or if we have a gap of > 128 in the queue)
 
 		// Increment the sequence number for the next message.
 		conn.seqnum++
@@ -414,29 +423,20 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 	})
 }
 
-func (conn *connUDP) scheduleRetry(mID uint16, timeToRetry time.Duration) {
-	ch := make(chan bool)
-
-	// First run for this connection, initialise the queue.
-	if conn.msgQueue == nil {
-		conn.msgQueue = make(map[uint16]queueEl)
+func (conn *connUDP) PopBuf() *bufMsg {
+	if len(conn.msgBuf) == 0 {
+		return nil
 	}
 
-	// We don't check if there's already a channel for this ID - if there is
-	// it's very likely to have belonged to an old request.
-	conn.msgQueue[mID] = queueEl{
-		seqnum: conn.seqnum,
-		ch:     ch,
+	bm := conn.msgBuf[0]
+
+	if len(conn.msgBuf) > 1 {
+		conn.msgBuf = conn.msgBuf[1:]
+	} else {
+		conn.msgBuf = make([]bufMsg, 0)
 	}
 
-	select {
-	case _ = <-ch:
-		// Cancel retry
-		return
-	case <-time.After(timeToRetry):
-		// Wait a bit more then retry
-		conn.scheduleRetry(mID, timeToRetry*2)
-	}
+	return &bm
 }
 
 func (conn *connUDP) SetCoapHeaders(buf io.Writer, m Message, nps NoisePipeState, msgID uint16) (mID uint16, err error) {
@@ -458,7 +458,7 @@ func (conn *connUDP) SetCoapHeaders(buf io.Writer, m Message, nps NoisePipeState
 	// XX3       | 1 (NON)   | 251       |
 	// IK1       | 0 (CON)   | 252       |
 	// IK2       | 2 (ACK)   | 252       |
-	switch nps - 1 {
+	switch nps {
 	case XX1:
 		t = 0
 		c = 250
@@ -536,6 +536,8 @@ func (conn *connUDP) SetCoapHeaders(buf io.Writer, m Message, nps NoisePipeState
 		return
 	}
 
+	debugf("Sending message using CoAP version %d, of type %d and code %d, and with message ID %d, token of length %d, and sequence number %d\n", v, t, c, mID, len(token), conn.seqnum)
+
 	return
 }
 
@@ -550,11 +552,14 @@ func newConnectionUDP(c *net.UDPConn, srv *Server) Conn {
 	rRand := rand.New(rSource)
 
 	connection := &connUDP{
-		connBase:   connBase{writeChan: make(chan writeReq, 10000), closeChan: make(chan bool), finChan: make(chan bool), closed: 0},
-		connection: c,
-		msgQueue:   make(map[uint16]queueEl),
-		rRand:      rRand,
+		connBase:     connBase{writeChan: make(chan writeReq, 10000), closeChan: make(chan bool), finChan: make(chan bool), closed: 0},
+		connection:   c,
+		retriesQueue: srv.RetriesQueue,
+		rRand:        rRand,
+		msgBuf:       make([]bufMsg, 0),
 	}
+
+	debugf("Creating new connection to %v with address %p and queue %p", c.RemoteAddr(), connection, connection.retriesQueue)
 
 	//log.Printf("newConnectionUDP called with conn=%p", connection)
 	//debug.PrintStack()
