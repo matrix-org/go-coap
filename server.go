@@ -179,6 +179,9 @@ type Server struct {
 
 	sessionUDPMapLock sync.Mutex
 	sessionUDPMap     map[string]networkSession
+
+	// Queue used to schedule, operate and cancel retries of sent messages
+	RetriesQueue *RetriesQueue
 }
 
 func (srv *Server) workerChannelHandler(inUse bool, timeout *time.Timer) bool {
