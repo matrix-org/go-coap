@@ -238,7 +238,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 			c = ns.Cs1.Cipher()
 		}
 
-		return c.Encrypt(nil, uint64(connUDP.seqnum), nil, msg), nil
+		return c.Encrypt(nil, uint64(connUDP.retriesQueue.seqnum), nil, msg), nil
 
 	case IK1: // -> e, es, s, ss  + payload
 		if ns.Initiator {

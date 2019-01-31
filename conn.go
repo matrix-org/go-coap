@@ -170,7 +170,6 @@ func (conn *connTCP) writeHandler(srv *Server) bool {
 type connUDP struct {
 	connBase
 	connection   *net.UDPConn // i/o connection if UDP was used
-	seqnum       uint8
 	retriesQueue *RetriesQueue
 	rRand        *rand.Rand
 	msgBuf       []bufMsg // messages waiting to be sent, e.g. during a handshake
@@ -417,7 +416,7 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 		// schedule expires or if we have a gap of > 128 in the queue)
 
 		// Increment the sequence number for the next message.
-		conn.seqnum++
+		conn.retriesQueue.seqnum++
 
 		return nil
 	})
@@ -532,11 +531,11 @@ func (conn *connUDP) SetCoapHeaders(buf io.Writer, m Message, nps NoisePipeState
 	// +-+-+-+-+-+-+-+-+
 	// |    Seq num    |
 	// +-+-+-+-+-+-+-+-+
-	if _, err = buf.Write([]byte{byte(conn.seqnum)}); err != nil {
+	if _, err = buf.Write([]byte{byte(conn.retriesQueue.seqnum)}); err != nil {
 		return
 	}
 
-	debugf("Sending message using CoAP version %d, of type %d and code %d, and with message ID %d, token of length %d, and sequence number %d\n", v, t, c, mID, len(token), conn.seqnum)
+	debugf("Sending message using CoAP version %d, of type %d and code %d, and with message ID %d, token of length %d, and sequence number %d\n", v, t, c, mID, len(token), conn.retriesQueue.seqnum)
 
 	return
 }
