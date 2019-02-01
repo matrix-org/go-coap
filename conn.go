@@ -439,6 +439,9 @@ func (conn *connUDP) PopBuf() *bufMsg {
 }
 
 func (conn *connUDP) SetCoapHeaders(buf io.Writer, m Message, nps NoisePipeState, msgID uint16) (mID uint16, err error) {
+
+	log.Printf("SetCoapHeaders with nps=%+v, msgID=%v", nps, msgID)
+
 	var v, t, c uint8
 
 	// Token is only needed if we're not handshaking.

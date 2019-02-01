@@ -288,7 +288,7 @@ func (ns *NoiseState) DecryptMessage(msg, payload []byte, remotePipeState NoiseP
 	switch ns.PipeState {
 	case XX1: // -> e
 		if !ns.Initiator {
-			debugf("Received XX1 handshake message %X", msg[:32])
+			debugf("Received XX1 handshake message %X", msg)
 			// N.B. this is only ever called during fallback from IK1.
 			msg, _, _, err = ns.Hs.ReadMessage(nil, msg)
 			if err != nil {
@@ -318,15 +318,15 @@ func (ns *NoiseState) DecryptMessage(msg, payload []byte, remotePipeState NoiseP
 
 	case XX2: // <- e, ee, s, es + payload
 		if ns.Initiator {
-			debugf("Received XX2 handshake message %X", msg[:96])
+			debugf("Received XX2 handshake message %X", msg)
 			msg, _, _, err = ns.Hs.ReadMessage(nil, msg)
 			if err != nil {
 				err = errors.New("XX2 handshake decryption failed: " + err.Error())
-				return
+				return nil, nil, false, err
 			}
 			if msg != nil {
 				err = errors.New("Received unexpected payload in XX2 handshake")
-				return
+				return nil, nil, false, err
 			}
 			debugf("I Receiving XX2: <- e, ee, s, es + payload %v", msg)
 
@@ -351,7 +351,7 @@ func (ns *NoiseState) DecryptMessage(msg, payload []byte, remotePipeState NoiseP
 			msg, cs0, cs1, err = ns.Hs.ReadMessage(nil, msg)
 			if err != nil {
 				err = errors.New("XX3 handshake decryption failed: " + err.Error())
-				return
+				return nil, nil, false, err
 			}
 			debugf("R Receiving XX3: -> s, se + decrypted payload %v", msg)
 			ns.Cs0 = cs0
@@ -411,7 +411,7 @@ func (ns *NoiseState) DecryptMessage(msg, payload []byte, remotePipeState NoiseP
 			msg, cs0, cs1, err = ns.Hs.ReadMessage(nil, msg)
 			if err != nil {
 				err = errors.New("IK2 handshake decryption failed: " + err.Error())
-				return
+				return nil, nil, false, err
 			}
 			debugf("R Receiving IK2: <- e, ee, se + decrypted payload %v", msg)
 			ns.Cs0 = cs0
