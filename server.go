@@ -575,7 +575,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 		n, s, err := connUDP.ReadFromSessionUDP(m)
 		m = m[:n]
 		if err != nil {
-			log.Printf("error in ReadFromSessionUDP: %v", err)
+			debugf("error in ReadFromSessionUDP: %v", err)
 			if netErr, ok := err.(net.Error); ok && netErr.Temporary() {
 				continue
 			}
@@ -583,7 +583,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			return err
 		}
 
-		log.Printf("Received %d bytes into %v", n, m)
+		debugf("Received %d bytes into %X", n, m)
 		var h retryHeaders
 		h, m = connUDP.extractRetryHeaders(m)
 
@@ -625,7 +625,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 
 			ns := session.GetNoiseState()
 
-			var bm *bufMsg
+			var queuedMsg *HSQueueMsg
 			// Zero value of []byte is nil, which is what we want if we don't
 			// want to append a payload to a handshake message.
 			var piggybacked []byte
@@ -633,9 +633,10 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			// message (which has the prerequisites that our current state is XX2
 			// and we're the initiator).
 			if ns.PipeState == XX2 && ns.Initiator {
-				if bm = connUDP.PopBuf(); bm != nil {
-					piggybacked = bm.b
+				if queuedMsg = connUDP.retriesQueue.PopHS(); queuedMsg != nil {
+					piggybacked = queuedMsg.b
 				}
+				debugf("Popped %p", queuedMsg)
 			}
 
 			// XXX: ideally we'd decrypt in connUDP.ReadFromSessionUDP, but we don't
@@ -645,46 +646,34 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 
 			var toSend []byte
 			var decrypted bool
+			debugf("Piggybacked: %X", piggybacked)
 			m, toSend, decrypted, err = ns.DecryptMessage(m, piggybacked, h.nps, h.seqnum, connUDP, s)
 			if err != nil {
 				log.Printf("ERROR: Failed to decrypt message: %v", err)
 				continue
 			}
-			log.Printf("Having decrypted message, toSend is: %v", toSend)
+			debugf("Having decrypted message, toSend is: %X", toSend)
 			if toSend != nil {
 				buf := &bytes.Buffer{}
 
-				// If bm isn't nil, then we're both in XX3 and the initiator. In
-				// this case we need to use the message of the original payload
-				// instead of a new "fake" one, because it's the one the
-				// response we use, which will allow us to correctly remove the
-				// message from the retry schedule once the response arrives.
+				// If queuedMsg isn't nil, then we're both in XX3 and the
+				// initiator. In this case we need to use the message of the
+				// original payload instead of a new "fake" one, because it's
+				// the one the response we use, which will allow us to correctly
+				// remove the message from the retry schedule once the response
+				// arrives.
 				var mID uint16
-				if bm == nil {
+				if queuedMsg == nil {
 					mID = h.msgID
 				} else {
-					mID = bm.m.MessageID()
+					mID = queuedMsg.m.MessageID()
 				}
 
-/*
-				// If we're handshaking, ns.PipeState will first get bumped by
-				// DecryptMessage, then by EncryptMessage, e.g.:
-				//   1. Receive message with NPS (NoisePipeState) = XX1
-				//   2. Decrypt XX1 message => NPS = XX2 (so EncryptMessage encrypts a XX2 message)
-				//   3. Encrypt XX2 message => NPS = XX3 (so next call to DecryptMessage expects a XX3 message)
-				// Therefore, we need to explicitly compute the state as it was
-				// *before* the call to EncryptMessage, which is NPS-1.
-				if ns.PipeState != READY && !ns.Initiator {
-					_, err = connUDP.SetCoapHeaders(buf, nil, ns.PipeState-1, mID)
-				} else {
-					_, err = connUDP.SetCoapHeaders(buf, nil, ns.PipeState, mID)
-				}
-*/
-				// actually, if we ever have toSend set, surely it means that we are either:
+				// If we ever have toSend set, surely it means that we are either:
 				// sending a XX2 response having received an XX1 (in which case our NPS is XX3 and must be decremented)
 				// or sending a XX3 response having received an XX2 (in which case our NPS is READY and must be decremented).
-				if _, err = connUDP.SetCoapHeaders(buf, nil, ns.PipeState - 1, mID); err != nil {
-					log.Printf("Failed to SetCoapHeaders: %v", err)
+				if _, err = connUDP.SetCoapHeaders(buf, nil, ns.PipeState-1, mID); err != nil {
+					log.Printf("ERROR: Failed to SetCoapHeaders: %v", err)
 					continue
 				}
 
@@ -699,7 +688,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 				}
 
 				// bm != nil is only true when we're sending XX3
-				if bm != nil {
+				if queuedMsg != nil {
 					go srv.RetriesQueue.ScheduleRetry(mID, 30*time.Second, buf.Bytes(), s, conn)
 				}
 			}
@@ -716,7 +705,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 		if srv.Compressor != nil {
 			decompressed, err = srv.Compressor.DecompressPayload(m)
 			if err != nil {
-				log.Printf("Failed to decompress payload: %v", err)
+				log.Printf("ERROR: Failed to decompress payload: %v", err)
 				continue
 			}
 		} else {
@@ -725,7 +714,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 
 		msg, err := ParseDgramMessage(decompressed)
 		if err != nil {
-			log.Printf("failed to ParseDgramMessage: %v", err)
+			log.Printf("ERROR: failed to ParseDgramMessage: %v", err)
 			continue
 		}
 

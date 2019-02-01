@@ -172,12 +172,6 @@ type connUDP struct {
 	connection   *net.UDPConn // i/o connection if UDP was used
 	retriesQueue *RetriesQueue
 	rRand        *rand.Rand
-	msgBuf       []bufMsg // messages waiting to be sent, e.g. during a handshake
-}
-
-type bufMsg struct {
-	b []byte  // We might do compression so we can't just call MarshalBinary
-	m Message // Kept for metadata access
 }
 
 type retryHeaders struct {
@@ -371,7 +365,12 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 			// piggyback the encrypted message on it. But here's not where that
 			// part of the magic happens.
 			if nps != READY {
-				conn.msgBuf = append(conn.msgBuf, bufMsg{b: compressed, m: data})
+				debugf("Queuing %X", compressed)
+				conn.retriesQueue.PushHS(HSQueueMsg{
+					b:    compressed,
+					m:    data,
+					conn: conn.connection,
+				})
 			}
 
 			// log.Printf("encrypting %d bytes with %+v as %v", len(compressed), ns, compressed)
@@ -420,22 +419,6 @@ func (conn *connUDP) writeHandler(srv *Server) bool {
 
 		return nil
 	})
-}
-
-func (conn *connUDP) PopBuf() *bufMsg {
-	if len(conn.msgBuf) == 0 {
-		return nil
-	}
-
-	bm := conn.msgBuf[0]
-
-	if len(conn.msgBuf) > 1 {
-		conn.msgBuf = conn.msgBuf[1:]
-	} else {
-		conn.msgBuf = make([]bufMsg, 0)
-	}
-
-	return &bm
 }
 
 func (conn *connUDP) SetCoapHeaders(buf io.Writer, m Message, nps NoisePipeState, msgID uint16) (mID uint16, err error) {
@@ -558,7 +541,6 @@ func newConnectionUDP(c *net.UDPConn, srv *Server) Conn {
 		connection:   c,
 		retriesQueue: srv.RetriesQueue,
 		rRand:        rRand,
-		msgBuf:       make([]bufMsg, 0),
 	}
 
 	debugf("Creating new connection to %v with address %p and queue %p", c.RemoteAddr(), connection, connection.retriesQueue)

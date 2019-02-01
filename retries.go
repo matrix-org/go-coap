@@ -10,20 +10,30 @@ type RetriesQueue struct {
 	q      map[uint16]queueEl
 	seqnum uint8 // Next sequence number, differs from the one in
 	mut    *sync.Mutex
+	// We store messages we put aside during handshakes here.
+	// TODO: This will eventually need to be moved to a dedicated structure.
+	hsQueue []HSQueueMsg
 }
 
-// We need to store sequence numbers in the queue in order to detect and measure
-// holes in the message queue, e.g. we'd need to re-handshake if we observe a
-// gap higher than 128 msgs (max(seqnum)/2).
 type queueEl struct {
-	ch     chan bool
+	ch chan bool
+	// We need to store sequence numbers in the queue in order to detect and
+	// measure holes in the message queue, e.g. we'd need to re-handshake if we
+	// observe a gap higher than 128 msgs (max(seqnum)/2).
 	seqnum uint8
+}
+
+type HSQueueMsg struct {
+	b    []byte  // We might do compression so we can't just call MarshalBinary
+	m    Message // Kept for metadata access
+	conn *net.UDPConn
 }
 
 func NewRetriesQueue() *RetriesQueue {
 	rq := new(RetriesQueue)
 	rq.q = make(map[uint16]queueEl)
 	rq.mut = new(sync.Mutex)
+	rq.hsQueue = make([]HSQueueMsg, 0)
 	return rq
 }
 
@@ -68,4 +78,25 @@ func (rq *RetriesQueue) CancelRetrySchedule(mID uint16) {
 	}
 
 	rq.mut.Unlock()
+}
+
+func (rq *RetriesQueue) PushHS(msg HSQueueMsg) {
+	rq.hsQueue = append(rq.hsQueue, msg)
+	return
+}
+
+func (rq *RetriesQueue) PopHS() *HSQueueMsg {
+	if len(rq.hsQueue) == 0 {
+		return nil
+	}
+
+	bm := rq.hsQueue[0]
+
+	if len(rq.hsQueue) > 1 {
+		rq.hsQueue = rq.hsQueue[1:]
+	} else {
+		rq.hsQueue = make([]HSQueueMsg, 0)
+	}
+
+	return &bm
 }
