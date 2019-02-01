@@ -633,7 +633,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			// message (which has the prerequisites that our current state is XX2
 			// and we're the initiator).
 			if ns.PipeState == XX2 && ns.Initiator {
-				if queuedMsg = connUDP.retriesQueue.PopHS(); queuedMsg != nil {
+				if queuedMsg = connUDP.retriesQueue.PopHS(s.raddr.IP.String()); queuedMsg != nil {
 					piggybacked = queuedMsg.b
 				}
 				debugf("Popped %p", queuedMsg)
@@ -646,7 +646,11 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 
 			var toSend []byte
 			var decrypted bool
-			debugf("Piggybacked: %X", piggybacked)
+			// TODO: we give DecryptMessage the NPS extracted from the message
+			// so that we no longer have to assume that both servers are in
+			// sync. However, noise doesn't allow specifying the handshake step
+			// to encrypt/decrypt messages for. We should figure ou how to
+			// handle that in a smarter way.
 			m, toSend, decrypted, err = ns.DecryptMessage(m, piggybacked, h.nps, h.seqnum, connUDP, s)
 			if err != nil {
 				log.Printf("ERROR: Failed to decrypt message: %v", err)
@@ -690,6 +694,19 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 				// bm != nil is only true when we're sending XX3
 				if queuedMsg != nil {
 					go srv.RetriesQueue.ScheduleRetry(mID, 30*time.Second, buf.Bytes(), s, conn)
+				}
+
+				if ns.PipeState == READY {
+					var msg *HSQueueMsg
+					for {
+						if msg = srv.RetriesQueue.PopHS(s.raddr.IP.String()); msg == nil {
+							break
+						}
+						// Run the sending in a goroutine since it's not
+						// supposed to have side-effects and we don't want it to
+						// block the request we're currently processing.
+						go msg.conn.sendMessage(msg.m, ns, msg.sessionData, srv)
+					}
 				}
 			}
 			// log.Printf("decrypted %d bytes with %+v as %v", len(m), ns, m)

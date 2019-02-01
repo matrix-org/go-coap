@@ -12,7 +12,7 @@ type RetriesQueue struct {
 	mut    *sync.Mutex
 	// We store messages we put aside during handshakes here.
 	// TODO: This will eventually need to be moved to a dedicated structure.
-	hsQueue []HSQueueMsg
+	hsQueue map[string][]HSQueueMsg
 }
 
 type queueEl struct {
@@ -24,16 +24,17 @@ type queueEl struct {
 }
 
 type HSQueueMsg struct {
-	b    []byte  // We might do compression so we can't just call MarshalBinary
-	m    Message // Kept for metadata access
-	conn *net.UDPConn
+	b           []byte  // We might do compression so we can't just call MarshalBinary
+	m           Message // Kept for metadata access
+	conn        *connUDP
+	sessionData *SessionUDPData
 }
 
 func NewRetriesQueue() *RetriesQueue {
 	rq := new(RetriesQueue)
 	rq.q = make(map[uint16]queueEl)
 	rq.mut = new(sync.Mutex)
-	rq.hsQueue = make([]HSQueueMsg, 0)
+	rq.hsQueue = make(map[string][]HSQueueMsg)
 	return rq
 }
 
@@ -81,21 +82,24 @@ func (rq *RetriesQueue) CancelRetrySchedule(mID uint16) {
 }
 
 func (rq *RetriesQueue) PushHS(msg HSQueueMsg) {
-	rq.hsQueue = append(rq.hsQueue, msg)
+	if _, ok := rq.hsQueue[msg.sessionData.raddr.IP.String()]; !ok {
+		rq.hsQueue[msg.sessionData.raddr.IP.String()] = make([]HSQueueMsg, 0)
+	}
+	rq.hsQueue[msg.sessionData.raddr.IP.String()] = append(rq.hsQueue[msg.sessionData.raddr.IP.String()], msg)
 	return
 }
 
-func (rq *RetriesQueue) PopHS() *HSQueueMsg {
-	if len(rq.hsQueue) == 0 {
+func (rq *RetriesQueue) PopHS(host string) *HSQueueMsg {
+	if q, ok := rq.hsQueue[host]; !ok || len(q) == 0 {
 		return nil
 	}
 
-	bm := rq.hsQueue[0]
+	bm := rq.hsQueue[host][0]
 
-	if len(rq.hsQueue) > 1 {
-		rq.hsQueue = rq.hsQueue[1:]
+	if len(rq.hsQueue[host]) > 1 {
+		rq.hsQueue[host] = rq.hsQueue[host][1:]
 	} else {
-		rq.hsQueue = make([]HSQueueMsg, 0)
+		rq.hsQueue[host] = make([]HSQueueMsg, 0)
 	}
 
 	return &bm

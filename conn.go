@@ -292,133 +292,145 @@ func (conn *connUDP) Close() error {
 
 func (conn *connUDP) writeHandler(srv *Server) bool {
 	return conn.writeHandlerWithFunc(srv, func(srv *Server, wreq writeReq) error {
-		data := wreq.data()
 		wreqUDP := wreq.(*writeReqUDP)
-		writeTimeout := srv.writeTimeout()
-		buf := &bytes.Buffer{}
-		err := data.MarshalBinary(buf)
+
+		return conn.sendMessage(wreq.data(), wreqUDP.ns, wreqUDP.sessionData, srv)
+	})
+}
+
+func (conn *connUDP) sendMessage(data Message, ns *NoiseState, sessionData *SessionUDPData, srv *Server) error {
+	writeTimeout := srv.writeTimeout()
+	buf := &bytes.Buffer{}
+	err := data.MarshalBinary(buf)
+	if err != nil {
+		return err
+	}
+
+	// TODO:
+	//
+	// before compressing, we have to move the coap headers to the cleartext payload
+	// we move:
+	//
+	//  0                   1                   2                   3
+	//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	// |Ver| T |  TKL  |      Code     |          Message ID           |
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	// |   Token (if any, TKL bytes) ...
+	// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+	// We leave the options and subsequent CBOR payloads however encrypted.
+
+	// We calculate an 8-bit sequence number at this point from the noise
+	// handshake state's nonce, and append it to the headers - we need
+	// this to do reordering on receipt to hand the
+	// packets to noise in the write order and without dups or gaps.
+
+	// We package up our XX and IK noise handshakes with the same headers
+	// as if they were CoAP.  No token is needed.  We'll need to pick a
+	// custom CoAP code.  Suggestion:
+
+	// Handshake | CoAP Type | CoAP Code |
+	// ----------|-----------|-----------|
+	// XX1       | 0 (CON)   | 250       |
+	// XX2       | 2 (ACK)   | 250       |
+	// XX3       | 1 (NON)   | 251       |
+	// IK1       | 0 (CON)   | 252       |
+	// IK2       | 2 (ACK)   | 252       |
+
+	// We could be naughty and set Ver=011b rather than 001b to indicate
+	// that encryption is turned on, in order to negotiate it more elegantly
+
+	//  On sending the response to a
+
+	var compressed []byte
+	if srv.Compressor != nil {
+		compressed, err = srv.Compressor.CompressPayload(buf.Bytes())
+		if err != nil {
+			return err
+		}
+		//log.Printf("Compressed packet: %d -> %d bytes", len(buf.Bytes()), len(compressed))
+	} else {
+		compressed = buf.Bytes()
+	}
+
+	conn.connection.SetWriteDeadline(time.Now().Add(writeTimeout))
+
+	var msg []byte
+	if srv.Encryption {
+		buf = new(bytes.Buffer)
+		ns := ns
+
+		nps := ns.PipeState
+
+		// If we're doing a handshake we'll want to queue up the message
+		// until the handshake is over.
+		if nps != READY {
+			debugf("Queuing %X", compressed)
+			conn.retriesQueue.PushHS(HSQueueMsg{
+				b:           compressed,
+				m:           data,
+				conn:        conn,
+				sessionData: sessionData,
+			})
+		} else {
+			var msg *HSQueueMsg
+			for {
+				if msg = srv.RetriesQueue.PopHS(sessionData.raddr.IP.String()); msg == nil {
+					break
+				}
+				// Run the sending in a goroutine since it's not
+				// supposed to have side-effects and we don't want it to
+				// block the request we're currently processing.
+				go msg.conn.sendMessage(msg.m, ns, msg.sessionData, srv)
+			}
+		}
+
+		// log.Printf("encrypting %d bytes with %+v as %v", len(compressed), ns, compressed)
+		msg, err = ns.EncryptMessage(compressed, conn, sessionData)
+		if err != nil {
+			log.Printf("failed to encrypt message: %v", err)
+			return err
+		}
+
+		var mID uint16
+		if mID, err = conn.SetCoapHeaders(buf, data, nps, 0); err != nil {
+			return err
+		}
+
+		if _, err = buf.Write(msg); err != nil {
+			return err
+		}
+
+		_, err = WriteToSessionUDP(conn.connection, buf.Bytes(), sessionData)
 		if err != nil {
 			return err
 		}
 
-		// TODO:
-		//
-		// before compressing, we have to move the coap headers to the cleartext payload
-		// we move:
-		//
-		//  0                   1                   2                   3
-		//  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-		// |Ver| T |  TKL  |      Code     |          Message ID           |
-		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-		// |   Token (if any, TKL bytes) ...
-		// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
-		// We leave the options and subsequent CBOR payloads however encrypted.
-
-		// We calculate an 8-bit sequence number at this point from the noise
-		// handshake state's nonce, and append it to the headers - we need
-		// this to do reordering on receipt to hand the
-		// packets to noise in the write order and without dups or gaps.
-
-		// We package up our XX and IK noise handshakes with the same headers
-		// as if they were CoAP.  No token is needed.  We'll need to pick a
-		// custom CoAP code.  Suggestion:
-
-		// Handshake | CoAP Type | CoAP Code |
-		// ----------|-----------|-----------|
-		// XX1       | 0 (CON)   | 250       |
-		// XX2       | 2 (ACK)   | 250       |
-		// XX3       | 1 (NON)   | 251       |
-		// IK1       | 0 (CON)   | 252       |
-		// IK2       | 2 (ACK)   | 252       |
-
-		// We could be naughty and set Ver=011b rather than 001b to indicate
-		// that encryption is turned on, in order to negotiate it more elegantly
-
-		//  On sending the response to a
-
-		var compressed []byte
-		if srv.Compressor != nil {
-			compressed, err = srv.Compressor.CompressPayload(buf.Bytes())
-			if err != nil {
-				return err
-			}
-			//log.Printf("Compressed packet: %d -> %d bytes", len(buf.Bytes()), len(compressed))
-		} else {
-			compressed = buf.Bytes()
+		if data.Type() == Confirmable {
+			// TODO: Figure out a sensible value for timeToRetry.
+			go conn.retriesQueue.ScheduleRetry(mID, 30*time.Second, buf.Bytes(), sessionData, conn.connection)
 		}
+	} else {
+		msg = compressed
+		_, err = WriteToSessionUDP(conn.connection, msg, sessionData)
+		return err
+	}
 
-		conn.connection.SetWriteDeadline(time.Now().Add(writeTimeout))
+	// TODO:
+	// Rather than having noise send directly or handle retries itself, noise needs to pass
+	// back the payload and we then retry (re)sending it here, as a bunch of bits.
+	//
+	// We need to track the msgid+token pair of the confirmable messages being sent, so we know when to
+	// keep retrying.  (As when we receive the ID of the response, we should stop retrying.)
+	//
+	// We may need a mechanism to unwedge wedged noisepipes	(e.g. actively rehandshake if the retry
+	// schedule expires or if we have a gap of > 128 in the queue)
 
-		var msg []byte
-		if srv.Encryption {
-			buf = new(bytes.Buffer)
-			ns := wreqUDP.ns
+	// Increment the sequence number for the next message.
+	conn.retriesQueue.seqnum++
 
-			nps := ns.PipeState
-
-			// If we're doing a handshake we'll want to queue up the message
-			// until the handshake is over.
-
-			// TODO: We also want to special-case XX3 since we're going to
-			// piggyback the encrypted message on it. But here's not where that
-			// part of the magic happens.
-			if nps != READY {
-				debugf("Queuing %X", compressed)
-				conn.retriesQueue.PushHS(HSQueueMsg{
-					b:    compressed,
-					m:    data,
-					conn: conn.connection,
-				})
-			}
-
-			// log.Printf("encrypting %d bytes with %+v as %v", len(compressed), ns, compressed)
-			msg, err = ns.EncryptMessage(compressed, conn, wreqUDP.sessionData)
-			if err != nil {
-				log.Printf("failed to encrypt message: %v", err)
-				return err
-			}
-
-			var mID uint16
-			if mID, err = conn.SetCoapHeaders(buf, data, nps, 0); err != nil {
-				return err
-			}
-
-			if _, err = buf.Write(msg); err != nil {
-				return err
-			}
-
-			_, err = WriteToSessionUDP(conn.connection, buf.Bytes(), wreqUDP.sessionData)
-			if err != nil {
-				return err
-			}
-
-			if data.Type() == Confirmable {
-				// TODO: Figure out a sensible value for timeToRetry.
-				go conn.retriesQueue.ScheduleRetry(mID, 30*time.Second, buf.Bytes(), wreqUDP.sessionData, conn.connection)
-			}
-		} else {
-			msg = compressed
-			_, err = WriteToSessionUDP(conn.connection, msg, wreqUDP.sessionData)
-			return err
-		}
-
-		// TODO:
-		// Rather than having noise send directly or handle retries itself, noise needs to pass
-		// back the payload and we then retry (re)sending it here, as a bunch of bits.
-		//
-		// We need to track the msgid+token pair of the confirmable messages being sent, so we know when to
-		// keep retrying.  (As when we receive the ID of the response, we should stop retrying.)
-		//
-		// We may need a mechanism to unwedge wedged noisepipes	(e.g. actively rehandshake if the retry
-		// schedule expires or if we have a gap of > 128 in the queue)
-
-		// Increment the sequence number for the next message.
-		conn.retriesQueue.seqnum++
-
-		return nil
-	})
+	return nil
 }
 
 func (conn *connUDP) SetCoapHeaders(buf io.Writer, m Message, nps NoisePipeState, msgID uint16) (mID uint16, err error) {
