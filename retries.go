@@ -60,9 +60,9 @@ func (rq *RetriesQueue) ScheduleRetry(mID uint16, timeToRetry time.Duration, b [
 	case <-time.After(timeToRetry):
 		// Wait a bit more then retry
 		debugf("No response for message %d, retrying", mID)
-		// if _, err := WriteToSessionUDP(conn.connection, b, session); err != nil {
-		// 	debugf("Retried failed: %s", err.Error())
-		// }
+		if _, err := WriteToSessionUDP(conn.connection, b, session); err != nil {
+			debugf("Retried failed: %s", err.Error())
+		}
 		rq.ScheduleRetry(mID, timeToRetry*2, b, session, conn)
 	}
 }
