@@ -66,4 +66,6 @@ func (rq *RetriesQueue) CancelRetrySchedule(mID uint16) {
 		rq.q[mID].ch <- true
 		delete(rq.q, mID)
 	}
+
+	rq.mut.Unlock()
 }
