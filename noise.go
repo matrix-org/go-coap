@@ -177,6 +177,7 @@ func (ns *NoiseState) EncryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 	var err error
 	var cs0, cs1 *noise.CipherState
 
+	// TODO: Reset the pipeline if we get incoherent back and forth
 	switch ns.PipeState {
 	case XX1: // -> e
 		if ns.Initiator {

@@ -204,7 +204,7 @@ func (conn *connUDP) resetConnection() error {
 
 func (conn *connUDP) ReadFromSessionUDP(m []byte) (int, *SessionUDPData, error) {
 	n, sessionData, err := ReadFromSessionUDP(conn.connection, m)
-	if _, ok := err.(net.Error); err == nil || !ok {
+	if _, ok := err.(net.Error); err == nil || !ok || conn.RemoteAddr() == nil {
 		return n, sessionData, err
 	}
 
