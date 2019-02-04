@@ -1,7 +1,6 @@
 package coap
 
 import (
-	"net"
 	"sync"
 	"time"
 )
@@ -12,7 +11,9 @@ type RetriesQueue struct {
 	mut    *sync.Mutex
 	// We store messages we put aside during handshakes here.
 	// TODO: This will eventually need to be moved to a dedicated structure.
-	hsQueue map[string][]HSQueueMsg
+	hsQueue    map[string][]HSQueueMsg
+	initDelay  time.Duration
+	multiplier time.Duration
 }
 
 type queueEl struct {
@@ -30,15 +31,17 @@ type HSQueueMsg struct {
 	sessionData *SessionUDPData
 }
 
-func NewRetriesQueue() *RetriesQueue {
+func NewRetriesQueue(initDelay time.Duration, multiplier int) *RetriesQueue {
 	rq := new(RetriesQueue)
 	rq.q = make(map[uint16]queueEl)
 	rq.mut = new(sync.Mutex)
 	rq.hsQueue = make(map[string][]HSQueueMsg)
+	rq.initDelay = initDelay
+	rq.multiplier = time.Duration(multiplier)
 	return rq
 }
 
-func (rq *RetriesQueue) ScheduleRetry(mID uint16, timeToRetry time.Duration, b []byte, session *SessionUDPData, conn *net.UDPConn) {
+func (rq *RetriesQueue) ScheduleRetry(mID uint16, b []byte, session *SessionUDPData, conn *connUDP) {
 	debugf("Scheduling retries for message %d", mID)
 
 	rq.mut.Lock()
@@ -53,18 +56,22 @@ func (rq *RetriesQueue) ScheduleRetry(mID uint16, timeToRetry time.Duration, b [
 
 	rq.mut.Unlock()
 
+	rq.retryIfNoResp(mID, ch, rq.initDelay, b, session, conn)
+}
+
+func (rq *RetriesQueue) retryIfNoResp(mID uint16, ch chan bool, delay time.Duration, b []byte, session *SessionUDPData, conn *connUDP) {
 	select {
 	case <-ch:
 		// Cancel retry
 		debugf("Received response for message %d, not retrying", mID)
 		return
-	case <-time.After(timeToRetry):
-		// Wait a bit more then retry
+	case <-time.After(rq.initDelay):
 		debugf("No response for message %d, retrying", mID)
-		if _, err := WriteToSessionUDP(conn, b, session); err != nil {
+		if err := conn.writeToSession(b, session); err != nil {
 			debugf("Retried failed: %s", err.Error())
 		}
-		rq.ScheduleRetry(mID, timeToRetry*2, b, session, conn)
+		// Wait a bit more then retry
+		rq.retryIfNoResp(mID, ch, delay*rq.multiplier, b, session, conn)
 	}
 }
 

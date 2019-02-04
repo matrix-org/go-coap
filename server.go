@@ -687,13 +687,12 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 					// likely retry sending the initial message.
 					continue
 				}
-				if _, err = WriteToSessionUDP(connUDP.connection, buf.Bytes(), s); err != nil {
-					continue
-				}
-
 				// bm != nil is only true when we're sending XX3
 				if queuedMsg != nil {
-					go srv.RetriesQueue.ScheduleRetry(mID, 30*time.Second, buf.Bytes(), s, conn)
+					go srv.RetriesQueue.ScheduleRetry(mID, buf.Bytes(), s, connUDP)
+				}
+				if err = connUDP.writeToSession(buf.Bytes(), s); err != nil {
+					continue
 				}
 
 				if ns.PipeState == READY {

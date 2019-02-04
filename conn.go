@@ -192,7 +192,26 @@ func (conn *connUDP) SetReadDeadline(timeout time.Time) error {
 	return conn.connection.SetReadDeadline(timeout)
 }
 
+func (conn *connUDP) resetConnection() error {
+	dialer := net.Dialer{}
+	c, err := dialer.Dial("udp", conn.RemoteAddr().String())
+	if err != nil {
+		return err
+	}
+	conn.connection = c.(*net.UDPConn)
+	return nil
+}
+
 func (conn *connUDP) ReadFromSessionUDP(m []byte) (int, *SessionUDPData, error) {
+	n, sessionData, err := ReadFromSessionUDP(conn.connection, m)
+	if _, ok := err.(net.Error); err == nil || !ok {
+		return n, sessionData, err
+	}
+
+	debugf("Resetting connection to %s because of error: %s", conn.RemoteAddr().String(), err.Error())
+	if err = conn.resetConnection(); err != nil {
+		return 0, nil, err
+	}
 	return ReadFromSessionUDP(conn.connection, m)
 }
 
@@ -402,20 +421,20 @@ func (conn *connUDP) sendMessage(data Message, ns *NoiseState, sessionData *Sess
 			return err
 		}
 
-		_, err = WriteToSessionUDP(conn.connection, buf.Bytes(), sessionData)
-		if err != nil {
-			return err
-		}
-
 		if data.Type() == Confirmable {
 			// TODO: Figure out a sensible value for timeToRetry.
-			go conn.retriesQueue.ScheduleRetry(mID, 30*time.Second, buf.Bytes(), sessionData, conn.connection)
+			go conn.retriesQueue.ScheduleRetry(mID, buf.Bytes(), sessionData, conn)
+
+			// Increment the sequence number for the next message.
+			conn.retriesQueue.seqnum++
 		}
-	} else {
-		msg = compressed
-		_, err = WriteToSessionUDP(conn.connection, msg, sessionData)
-		return err
+
+		return conn.writeToSession(buf.Bytes(), sessionData)
 	}
+
+	msg = compressed
+	_, err = WriteToSessionUDP(conn.connection, msg, sessionData)
+	return err
 
 	// TODO:
 	// Rather than having noise send directly or handle retries itself, noise needs to pass
@@ -426,11 +445,22 @@ func (conn *connUDP) sendMessage(data Message, ns *NoiseState, sessionData *Sess
 	//
 	// We may need a mechanism to unwedge wedged noisepipes	(e.g. actively rehandshake if the retry
 	// schedule expires or if we have a gap of > 128 in the queue)
+}
 
-	// Increment the sequence number for the next message.
-	conn.retriesQueue.seqnum++
+func (conn *connUDP) writeToSession(b []byte, sessionData *SessionUDPData) error {
+	_, err := WriteToSessionUDP(conn.connection, b, sessionData)
+	if _, ok := err.(net.Error); err == nil || !ok {
+		return err
+	}
 
-	return nil
+	debugf("Resetting connection to %s because of error: %s", conn.RemoteAddr().String(), err.Error())
+	if err = conn.resetConnection(); err != nil {
+		return err
+	}
+
+	_, err = WriteToSessionUDP(conn.connection, b, sessionData)
+
+	return err
 }
 
 func (conn *connUDP) SetCoapHeaders(buf io.Writer, m Message, nps NoisePipeState, msgID uint16) (mID uint16, err error) {
