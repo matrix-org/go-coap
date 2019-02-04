@@ -19,7 +19,7 @@ import (
 const idleWorkerTimeout = 10 * time.Second
 
 // Maximum number of workers
-const maxWorkersCount = 10000
+const maxWorkersCount = 10
 
 const coapTimeout time.Duration = 3600 * time.Second
 
@@ -573,7 +573,6 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 		}
 		m = m[:cap(m)]
 		n, s, err := connUDP.ReadFromSessionUDP(m)
-		m = m[:n]
 		if err != nil {
 			debugf("error in ReadFromSessionUDP: %v", err)
 			if netErr, ok := err.(net.Error); ok && netErr.Temporary() {
@@ -582,6 +581,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			srv.closeSessions(err)
 			return err
 		}
+		m = m[:n]
 
 		debugf("Received %d bytes into %X", n, m)
 		var h retryHeaders
