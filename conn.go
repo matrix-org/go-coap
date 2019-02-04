@@ -194,21 +194,29 @@ func (conn *connUDP) SetReadDeadline(timeout time.Time) error {
 
 func (conn *connUDP) resetConnection() error {
 	dialer := net.Dialer{}
-	c, err := dialer.Dial("udp", conn.RemoteAddr().String())
-	if err != nil {
-		return err
+	if conn.RemoteAddr() == nil {
+		c, err := net.ListenUDP("udp", conn.LocalAddr().(*net.UDPAddr))
+		if err != nil {
+			return err
+		}
+		conn.connection = c
+	} else {
+		c, err := dialer.Dial("udp", conn.RemoteAddr().String())
+		if err != nil {
+			return err
+		}
+		conn.connection = c.(*net.UDPConn)
 	}
-	conn.connection = c.(*net.UDPConn)
 	return nil
 }
 
 func (conn *connUDP) ReadFromSessionUDP(m []byte) (int, *SessionUDPData, error) {
 	n, sessionData, err := ReadFromSessionUDP(conn.connection, m)
-	if _, ok := err.(net.Error); err == nil || !ok || conn.RemoteAddr() == nil {
+	if _, ok := err.(net.Error); err == nil || !ok == nil {
 		return n, sessionData, err
 	}
 
-	debugf("Resetting connection to %s because of error: %s", conn.RemoteAddr().String(), err.Error())
+	debugf("Resetting connection because of error: %s", err.Error())
 	if err = conn.resetConnection(); err != nil {
 		return 0, nil, err
 	}
@@ -453,7 +461,7 @@ func (conn *connUDP) writeToSession(b []byte, sessionData *SessionUDPData) error
 		return err
 	}
 
-	debugf("Resetting connection to %s because of error: %s", conn.RemoteAddr().String(), err.Error())
+	debugf("Resetting connection because of error: %s", err.Error())
 	if err = conn.resetConnection(); err != nil {
 		return err
 	}
