@@ -193,26 +193,30 @@ func (conn *connUDP) SetReadDeadline(timeout time.Time) error {
 }
 
 func (conn *connUDP) resetConnection() error {
+	conn.connection.Close()
 	dialer := net.Dialer{}
 	if conn.RemoteAddr() == nil {
+		debugf("Reset listener on %s", conn.LocalAddr())
 		c, err := net.ListenUDP("udp", conn.LocalAddr().(*net.UDPAddr))
 		if err != nil {
 			return err
 		}
 		conn.connection = c
 	} else {
+		debugf("Reset connection from %s to %s", conn.LocalAddr().String(), conn.RemoteAddr().String())
 		c, err := dialer.Dial("udp", conn.RemoteAddr().String())
 		if err != nil {
 			return err
 		}
 		conn.connection = c.(*net.UDPConn)
+		debugf("+-> New local address: %s", c.LocalAddr().String())
 	}
 	return nil
 }
 
 func (conn *connUDP) ReadFromSessionUDP(m []byte) (int, *SessionUDPData, error) {
 	n, sessionData, err := ReadFromSessionUDP(conn.connection, m)
-	if _, ok := err.(net.Error); err == nil || !ok == nil {
+	if _, ok := err.(net.Error); err == nil || !ok {
 		return n, sessionData, err
 	}
 
@@ -473,7 +477,7 @@ func (conn *connUDP) writeToSession(b []byte, sessionData *SessionUDPData) error
 
 func (conn *connUDP) SetCoapHeaders(buf io.Writer, m Message, nps NoisePipeState, msgID uint16) (mID uint16, err error) {
 
-	log.Printf("SetCoapHeaders with nps=%+v, msgID=%v", nps, msgID)
+	debugf("SetCoapHeaders with nps=%+v, msgID=%v", nps, msgID)
 
 	var v, t, c uint8
 

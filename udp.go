@@ -1,9 +1,10 @@
 package coap
 
 import (
-	"encoding/base64"
+	// "encoding/base64"
 	"net"
 	"runtime"
+	"strings"
 	// "log"
 
 	"golang.org/x/net/ipv4"
@@ -38,13 +39,15 @@ func (s *SessionUDPData) RemoteAddr() net.Addr { return s.raddr }
 
 // Key returns the key session for the map using
 func (s *SessionUDPData) Key() string {
-	key := s.RemoteAddr().String() + "-" + base64.StdEncoding.EncodeToString(s.context)
+	// key := s.RemoteAddr().String() + "-" + base64.StdEncoding.EncodeToString(s.context)
+	key := strings.Split(s.RemoteAddr().String(), ":")[0]
 	return key
 }
 
 // ReadFromSessionUDP acts just like net.UDPConn.ReadFrom(), but returns a session object instead of a
 // net.UDPAddr.
 func ReadFromSessionUDP(conn *net.UDPConn, b []byte) (int, *SessionUDPData, error) {
+	debugf("NETWORK: Reading on %s", conn.LocalAddr().String())
 	oob := make([]byte, udpOOBSize)
 	n, oobn, _, raddr, err := conn.ReadMsgUDP(b, oob)
 	if err != nil {
@@ -55,6 +58,7 @@ func ReadFromSessionUDP(conn *net.UDPConn, b []byte) (int, *SessionUDPData, erro
 
 // WriteToSessionUDP acts just like net.UDPConn.WriteTo(), but uses a *SessionUDPData instead of a net.Addr.
 func WriteToSessionUDP(conn *net.UDPConn, b []byte, session *SessionUDPData) (int, error) {
+	debugf("NETWORK: Writing to %s", session.raddr.String())
 
 	//log.Printf("sending %v", b)
 

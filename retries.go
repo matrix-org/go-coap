@@ -1,12 +1,16 @@
 package coap
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
 
 type RetriesQueue struct {
-	q      map[uint16]queueEl
+	q map[uint16]queueEl
+	// Maps ip addresses (or hostnames) to message IDs so we can know which
+	// destination should be sending us the response for a given message.
+	mIDs   map[string][]uint16
 	seqnum uint8 // Next sequence number, differs from the one in
 	mut    *sync.Mutex
 	// We store messages we put aside during handshakes here.
@@ -34,6 +38,7 @@ type HSQueueMsg struct {
 func NewRetriesQueue(initDelay time.Duration, multiplier int) *RetriesQueue {
 	rq := new(RetriesQueue)
 	rq.q = make(map[uint16]queueEl)
+	rq.mIDs = make(map[string][]uint16)
 	rq.mut = new(sync.Mutex)
 	rq.hsQueue = make(map[string][]HSQueueMsg)
 	rq.initDelay = initDelay
@@ -52,6 +57,16 @@ func (rq *RetriesQueue) ScheduleRetry(mID uint16, b []byte, session *SessionUDPD
 			seqnum: rq.seqnum,
 			ch:     ch,
 		}
+	}
+
+	destination := strings.Split(session.RemoteAddr().String(), ":")[0]
+
+	// Store which destination this message is for.
+	if _, ok := rq.mIDs[destination]; !ok {
+		rq.mIDs[destination] = make([]uint16, 1)
+		rq.mIDs[destination][0] = mID
+	} else {
+		rq.mIDs[destination] = append(rq.mIDs[destination], mID)
 	}
 
 	rq.mut.Unlock()
@@ -73,6 +88,22 @@ func (rq *RetriesQueue) retryIfNoResp(mID uint16, ch chan bool, delay time.Durat
 		// Wait a bit more then retry
 		rq.retryIfNoResp(mID, ch, delay*rq.multiplier, b, session, conn)
 	}
+}
+
+func (rq *RetriesQueue) PopMID(dest string) *uint16 {
+	if mIDs, ok := rq.mIDs[dest]; !ok || len(mIDs) == 0 {
+		return nil
+	}
+
+	mID := rq.mIDs[dest][0]
+
+	if len(rq.mIDs[dest]) > 1 {
+		rq.mIDs[dest] = rq.mIDs[dest][1:]
+	} else {
+		rq.mIDs[dest] = make([]uint16, 0)
+	}
+
+	return &mID
 }
 
 func (rq *RetriesQueue) CancelRetrySchedule(mID uint16) {

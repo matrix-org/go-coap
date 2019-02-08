@@ -588,6 +588,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 		h, m = connUDP.extractRetryHeaders(m)
 
 		srv.sessionUDPMapLock.Lock()
+		debugf("Looking at session with key %s", s.Key())
 		session := srv.sessionUDPMap[s.Key()]
 		if session == nil {
 			session, err = srv.newSessionUDPFunc(connUDP, srv, s, false)
@@ -617,13 +618,14 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 
 		if srv.Encryption {
 
-			// TODO: When we hit a READY pipe state, use the current server to
-			// send all of the messages in the connection's buffer. This means:
-			//   - if we're initiator: do it right after receiving the response
-			//                         to XX3 (?)
-			//   - if we're not the initiator: do it right after receiving XX3
-
 			ns := session.GetNoiseState()
+
+			// If we receive a XX1 msg, it means the remote server initiated a
+			// re-handshake.
+			if h.nps == XX1 && ns.PipeState != XX1 {
+				ns.Initiator = false
+				ns.SetupXX()
+			}
 
 			var queuedMsg *HSQueueMsg
 			// Zero value of []byte is nil, which is what we want if we don't
@@ -646,19 +648,52 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 
 			var toSend []byte
 			var decrypted bool
-			// TODO: we give DecryptMessage the NPS extracted from the message
-			// so that we no longer have to assume that both servers are in
-			// sync. However, noise doesn't allow specifying the handshake step
-			// to encrypt/decrypt messages for. We should figure ou how to
-			// handle that in a smarter way.
-			m, toSend, decrypted, err = ns.DecryptMessage(m, piggybacked, h.nps, h.seqnum, connUDP, s)
-			if err != nil {
+
+			// At this stage, ns.PipeState will be equal to the value we expect
+			// from the incoming message.
+			expectedPipeState := ns.PipeState
+
+			m, toSend, decrypted, err = ns.DecryptMessage(m, piggybacked, h.seqnum, connUDP, s)
+			// TODO: Move this to noise.go
+			if err == ErrIncoherentHandshakeMsg || expectedPipeState != h.nps {
+				// If we get an incoherent handshake message, initiate a
+				// re-handshake.
+				// Here, an incoherent handshake message is either a
+				// non-handshake message that arrives before the handshake is
+				// complete (i.e. before we have values for Cs0 and Cs1), or a
+				// handshake message that arrives out of sequence (i.e. XX2 when
+				// we're waiting for XX3).
+				// It can also be e.g. a XX3 message received by the initiator,
+				// in which case we consider the remote server as confused and
+				// restart the handshake from scratch.
+				debugf("Got incoherent handshake message, re-handshaking")
+				ns.Initiator = true
+				ns.SetupXX()
+				// Encrypt the XX1 message to send
+				toSend, err = ns.EncryptMessage(nil, connUDP, s)
+				if err != nil {
+					log.Printf("ERROR: Failed to restart handshake: %v", err)
+					continue
+				}
+				// Drop all retries to this destination on the floor.
+				dest := strings.Split(s.RemoteAddr().String(), ":")[0]
+				debugf("Cancelling all pending retries to %s", dest)
+				var mIDToCancel *uint16
+				for {
+					if mIDToCancel = srv.RetriesQueue.PopMID(dest); mIDToCancel == nil {
+						break
+					}
+					srv.RetriesQueue.CancelRetrySchedule(*mIDToCancel)
+				}
+			} else if err != nil {
 				log.Printf("ERROR: Failed to decrypt message: %v", err)
 				continue
 			}
+
 			debugf("Having decrypted message, toSend is: %X", toSend)
 			if toSend != nil {
 				buf := &bytes.Buffer{}
+				var mID uint16
 
 				// If queuedMsg isn't nil, then we're both in XX3 and the
 				// initiator. In this case we need to use the message of the
@@ -666,11 +701,12 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 				// the one the response we use, which will allow us to correctly
 				// remove the message from the retry schedule once the response
 				// arrives.
-				var mID uint16
 				if queuedMsg == nil {
 					mID = h.msgID
+					debugf("Got messageID from incoming msg: %d", mID)
 				} else {
 					mID = queuedMsg.m.MessageID()
+					debugf("Got messageID from queued msg: %d", mID)
 				}
 
 				// If we ever have toSend set, surely it means that we are either:
