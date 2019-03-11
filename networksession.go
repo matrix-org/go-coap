@@ -1,7 +1,6 @@
 package coap
 
 import (
-	"github.com/flynn/noise"
 	"log"
 	"net"
 	"sync"
@@ -98,24 +97,9 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 	}
 
 	if srv.Encryption {
-		// set up noise initiator or receiver
-		cs := noise.NewCipherSuite(noise.DH25519, noise.CipherAESGCM, noise.HashSHA512)
-		// cs := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
-		rng := new(RandomInc)
-
-		hs, _ := noise.NewHandshakeState(noise.Config{
-			CipherSuite:  cs,
-			Random:       rng,
-			Pattern:      noise.HandshakeNN,
-			Initiator:    initiator,
-			PresharedKey: srv.Psk,
-		})
-
-		//debug.PrintStack()
-
-		s.ns = &NoiseState{
-			Hs:        hs,
-			Initiator: initiator,
+		var err error
+		if s.ns, err = NewNoiseState(connection, initiator, srv.KeyStore); err != nil {
+			return s, err
 		}
 
 		//log.Printf("newSessionUDP %p with NS %p (hs %p) and initiator %v", s, s.ns, s.ns.Hs, initiator)
@@ -157,14 +141,6 @@ func newSessionTCP(connection Conn, srv *Server) (networkSession, error) {
 
 type sessionResp struct {
 	ch chan *Request // channel must have size 1 for non-blocking write to channel
-}
-
-type NoiseState struct {
-	Hs         *noise.HandshakeState
-	Handshakes int
-	Cs0        *noise.CipherState // for encrypting
-	Cs1        *noise.CipherState // for decrypting
-	Initiator  bool
 }
 
 type sessionBase struct {

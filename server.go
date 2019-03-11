@@ -3,6 +3,7 @@ package coap
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/tls"
 	"log"
 	"net"
@@ -12,15 +13,13 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/flynn/noise"
 )
 
 // Interval for stop worker if no load
 const idleWorkerTimeout = 10 * time.Second
 
 // Maximum number of workers
-const maxWorkersCount = 10000
+const maxWorkersCount = 10
 
 const coapTimeout time.Duration = 3600 * time.Second
 
@@ -159,6 +158,9 @@ type Server struct {
 	// is encryption on or off?
 	Encryption bool
 
+	// what keystore to use for tracking remote server keys
+	KeyStore KeyStore
+
 	// psk if any
 	Psk []byte
 
@@ -177,6 +179,9 @@ type Server struct {
 
 	sessionUDPMapLock sync.Mutex
 	sessionUDPMap     map[string]networkSession
+
+	// Queue used to schedule, operate and cancel retries of sent messages
+	RetriesQueue *RetriesQueue
 }
 
 func (srv *Server) workerChannelHandler(inUse bool, timeout *time.Timer) bool {
@@ -569,6 +574,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 		m = m[:cap(m)]
 		n, s, err := connUDP.ReadFromSessionUDP(m)
 		if err != nil {
+			debugf("error in ReadFromSessionUDP: %v", err)
 			if netErr, ok := err.(net.Error); ok && netErr.Temporary() {
 				continue
 			}
@@ -576,9 +582,13 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			return err
 		}
 		m = m[:n]
-		//log.Printf("Received %d bytes into %v", n, m)
+
+		debugf("Received %d bytes into %X", n, m)
+		var h retryHeaders
+		h, m = connUDP.extractRetryHeaders(m)
 
 		srv.sessionUDPMapLock.Lock()
+		debugf("Looking at session with key %s", s.Key())
 		session := srv.sessionUDPMap[s.Key()]
 		if session == nil {
 			session, err = srv.newSessionUDPFunc(connUDP, srv, s, false)
@@ -592,40 +602,154 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			srv.sessionUDPMapLock.Unlock()
 		}
 
+		// TODO:
+		//    Check the CoAP headers (whether the payload is encrypted or not).
+		//    If it's a response to a confirmable message, then we mark this msgid+token pair
+		// 	  as having been received, so we stop retrying to send on the send path.
+		//
+		//    If it's encrypted, we then look at the seqnum, and reorder the packets
+		//	  in order to ensure we feed them to noise in the right order without dups or gaps
+		//
+		//    We have to expand out the seqnum from being 8-bits to a larger value for reordering
+		//	  purposes.   (We assume that seqnum will never jump more than 2^7 bytes at a time).
+		//	  We then have to pass the expanded seqnum to noise via SetNonce() so that noise
+		//	  knows how to decrypt the packet.  Therefore, we don't actually need a reordering
+		//	  buffer \o/
+
 		if srv.Encryption {
+
 			ns := session.GetNoiseState()
-			// connUDP.SetNoiseState(ns)
+
+			// If we receive a XX1 msg, it means the remote server initiated a
+			// re-handshake.
+			if h.nps == XX1 && ns.PipeState != XX1 {
+				ns.Initiator = false
+				ns.SetupXX()
+			}
+
+			var queuedMsg *HSQueueMsg
+			// Zero value of []byte is nil, which is what we want if we don't
+			// want to append a payload to a handshake message.
+			var piggybacked []byte
+			// We only want a piggybacked payload if we're about to send a XX3
+			// message (which has the prerequisites that our current state is XX2
+			// and we're the initiator).
+			if ns.PipeState == XX2 && ns.Initiator {
+				if queuedMsg = connUDP.retriesQueue.PopHS(s.raddr.IP.String()); queuedMsg != nil {
+					piggybacked = queuedMsg.b
+				}
+				debugf("Popped %p", queuedMsg)
+			}
 
 			// XXX: ideally we'd decrypt in connUDP.ReadFromSessionUDP, but we don't
 			// know which session we're part of at that point. So instead we decrypt here.
 			// We might want to call through to Conn for this?
+			// log.Printf("decrypting %d bytes with %+v as %v", n, ns, m)
 
-			hs := ns.Hs
-			if ns.Handshakes < 2 {
-				// log.Printf("handshake decrypting %d bytes with hs %p: %v", n, hs, m)
-				m, ns.Cs0, ns.Cs1, err = hs.ReadMessage(nil, m)
+			var toSend []byte
+			var decrypted bool
+
+			// At this stage, ns.PipeState will be equal to the value we expect
+			// from the incoming message.
+			expectedPipeState := ns.PipeState
+
+			m, toSend, decrypted, err = ns.DecryptMessage(m, piggybacked, h.seqnum, connUDP, s)
+			// TODO: Move this to noise.go
+			if err == ErrIncoherentHandshakeMsg || expectedPipeState != h.nps {
+				// If we get an incoherent handshake message, initiate a
+				// re-handshake.
+				// Here, an incoherent handshake message is either a
+				// non-handshake message that arrives before the handshake is
+				// complete (i.e. before we have values for Cs0 and Cs1), or a
+				// handshake message that arrives out of sequence (i.e. XX2 when
+				// we're waiting for XX3).
+				// It can also be e.g. a XX3 message received by the initiator,
+				// in which case we consider the remote server as confused and
+				// restart the handshake from scratch.
+				debugf("Got incoherent handshake message, re-handshaking")
+				ns.Initiator = true
+				ns.SetupXX()
+				// Encrypt the XX1 message to send
+				toSend, err = ns.EncryptMessage(nil, connUDP, s)
 				if err != nil {
-					log.Printf("handshake decryption failed: %v", err)
-					return err
+					log.Printf("ERROR: Failed to restart handshake: %v", err)
+					continue
 				}
-				// log.Printf("handshake decrypted %d bytes with hs %p: %v", len(m), hs, m)
-				//log.Printf("handshake decrypted %d->%d bytes with %p", n, len(m), hs)
-				ns.Handshakes++
-			} else {
-				// log.Printf("decrypting %d bytes with hs %p: %v", n, hs, m)
-				var cs *noise.CipherState
-				if ns.Initiator {
-					cs = ns.Cs1
+				// Drop all retries to this destination on the floor.
+				dest := strings.Split(s.RemoteAddr().String(), ":")[0]
+				debugf("Cancelling all pending retries to %s", dest)
+				var mIDToCancel *uint16
+				for {
+					if mIDToCancel = srv.RetriesQueue.PopMID(dest); mIDToCancel == nil {
+						break
+					}
+					srv.RetriesQueue.CancelRetrySchedule(*mIDToCancel)
+				}
+			} else if err != nil {
+				log.Printf("ERROR: Failed to decrypt message: %v", err)
+				continue
+			}
+
+			debugf("Having decrypted message, toSend is: %X", toSend)
+			if toSend != nil {
+				buf := &bytes.Buffer{}
+				var mID uint16
+
+				// If queuedMsg isn't nil, then we're both in XX3 and the
+				// initiator. In this case we need to use the message of the
+				// original payload instead of a new "fake" one, because it's
+				// the one the response we use, which will allow us to correctly
+				// remove the message from the retry schedule once the response
+				// arrives.
+				if queuedMsg == nil {
+					mID = h.msgID
+					debugf("Got messageID from incoming msg: %d", mID)
 				} else {
-					cs = ns.Cs0
+					mID = queuedMsg.m.MessageID()
+					debugf("Got messageID from queued msg: %d", mID)
 				}
-				m, err = cs.Decrypt(nil, nil, m)
-				if err != nil {
-					log.Printf("Decryption failed: %v", err)
-					return err
+
+				// If we ever have toSend set, surely it means that we are either:
+				// sending a XX2 response having received an XX1 (in which case our NPS is XX3 and must be decremented)
+				// or sending a XX3 response having received an XX2 (in which case our NPS is READY and must be decremented).
+				if _, err = connUDP.SetCoapHeaders(buf, nil, ns.PipeState-1, mID); err != nil {
+					log.Printf("ERROR: Failed to SetCoapHeaders: %v", err)
+					continue
 				}
-				// log.Printf("decrypted %d bytes with hs %p: %v", len(m), hs, m)
-				//log.Printf("decrypted %d->%d bytes with %p", n, len(m), hs)
+
+				if _, err = buf.Write(toSend); err != nil {
+					// If we fail to send the handshake response, we can drop
+					// the message on the floor because the remote server will
+					// likely retry sending the initial message.
+					continue
+				}
+				// bm != nil is only true when we're sending XX3
+				if queuedMsg != nil {
+					go srv.RetriesQueue.ScheduleRetry(mID, buf.Bytes(), s, connUDP)
+				}
+				if err = connUDP.writeToSession(buf.Bytes(), s); err != nil {
+					continue
+				}
+
+				if ns.PipeState == READY {
+					var msg *HSQueueMsg
+					for {
+						if msg = srv.RetriesQueue.PopHS(s.raddr.IP.String()); msg == nil {
+							break
+						}
+						// Run the sending in a goroutine since it's not
+						// supposed to have side-effects and we don't want it to
+						// block the request we're currently processing.
+						go msg.conn.sendMessage(msg.m, ns, msg.sessionData, srv)
+					}
+				}
+			}
+			// log.Printf("decrypted %d bytes with %+v as %v", len(m), ns, m)
+			// log.Printf("decrypted %d->%d bytes with %+v", n, len(m), ns)
+
+			if !decrypted || len(m) == 0 {
+				// it'll be a dummy zero-length msg generated by a noise handshake
+				continue
 			}
 		}
 
@@ -633,7 +757,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 		if srv.Compressor != nil {
 			decompressed, err = srv.Compressor.DecompressPayload(m)
 			if err != nil {
-				log.Printf("Failed to decompress payload: %v", err)
+				log.Printf("ERROR: Failed to decompress payload: %v", err)
 				continue
 			}
 		} else {
@@ -642,6 +766,7 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 
 		msg, err := ParseDgramMessage(decompressed)
 		if err != nil {
+			log.Printf("ERROR: failed to ParseDgramMessage: %v", err)
 			continue
 		}
 

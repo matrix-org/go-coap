@@ -37,8 +37,11 @@ type Client struct {
 	BlockWiseTransferSzx *BlockWiseSzx // Set maximal block size of payload that will be send in fragment
 
 	Encryption bool
+	KeyStore   KeyStore
 	Compressor Compressor
 	Psk        []byte
+
+	RetriesQueue *RetriesQueue // Queue used to schedule, operate and cancel retries of sent messages
 }
 
 func (c *Client) readTimeout() time.Duration {
@@ -182,10 +185,12 @@ func (c *Client) Dial(address string) (clientConn *ClientConn, err error) {
 				}
 				return session, nil
 			},
-			Handler:    c.Handler,
-			Encryption: c.Encryption,
-			Psk:        c.Psk,
-			Compressor: c.Compressor,
+			Handler:      c.Handler,
+			Encryption:   c.Encryption,
+			KeyStore:     c.KeyStore,
+			Psk:          c.Psk,
+			Compressor:   c.Compressor,
+			RetriesQueue: c.RetriesQueue,
 		},
 		shutdownSync: make(chan error),
 		multicast:    multicast,
