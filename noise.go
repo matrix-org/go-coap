@@ -163,21 +163,9 @@ func debugf(format string, args ...interface{}) {
 }
 
 func (ns *NoiseState) EncryptMessage(msg []byte, connUDP *connUDP, sessionUDPData *SessionUDPData) ([]byte, error) {
-
-	// TODO: add IDs of some kind to handshake packets and retry them at this layer
-	// in the event of packet loss. This should be handled by the proposed retry
-	// layer at the conn layer.
-	//
-	// See https://noiseprotocol.org/noise.html#out-of-order-transport-messages
-	// and 'negotiation data' from
-	// https://noiseprotocol.org/noise.html#application-responsibilities
-	//
-	// See also https://moderncrypto.org/mail-archive/noise/2018/001921.html
-
 	var err error
 	var cs0, cs1 *noise.CipherState
 
-	// TODO: Reset the pipeline if we get incoherent back and forth
 	switch ns.PipeState {
 	case XX1: // -> e
 		if ns.Initiator {
@@ -383,12 +371,6 @@ func (ns *NoiseState) DecryptMessage(msg, payload []byte, seqnum uint8, connUDP 
 			err = ErrIncoherentHandshakeMsg
 			return
 		}
-
-		// TODO: take our 8-bit nonce header, derive a full 64-bit nonce from it,
-		// and explicitly call SetNonce() on our `cs` so we can reliably decrypt
-		// out-of-order or missing messages.  We should also deduplicate at this point
-		// to stop replay attacks.
-		// See https://noiseprotocol.org/noise.html#out-of-order-transport-messages
 
 		msg, err = cs.Cipher().Decrypt(nil, uint64(seqnum), nil, msg)
 		if err != nil {

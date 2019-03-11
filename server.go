@@ -602,20 +602,8 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			srv.sessionUDPMapLock.Unlock()
 		}
 
-		// TODO:
-		//    Check the CoAP headers (whether the payload is encrypted or not).
-		//    If it's a response to a confirmable message, then we mark this msgid+token pair
-		// 	  as having been received, so we stop retrying to send on the send path.
-		//
-		//    If it's encrypted, we then look at the seqnum, and reorder the packets
-		//	  in order to ensure we feed them to noise in the right order without dups or gaps
-		//
-		//    We have to expand out the seqnum from being 8-bits to a larger value for reordering
-		//	  purposes.   (We assume that seqnum will never jump more than 2^7 bytes at a time).
-		//	  We then have to pass the expanded seqnum to noise via SetNonce() so that noise
-		//	  knows how to decrypt the packet.  Therefore, we don't actually need a reordering
-		//	  buffer \o/
-
+		// TODO: Check the CoAP headers to determine whether the payload is
+		// encrypted or not.
 		if srv.Encryption {
 
 			ns := session.GetNoiseState()

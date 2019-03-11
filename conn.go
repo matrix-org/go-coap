@@ -337,9 +337,7 @@ func (conn *connUDP) sendMessage(data Message, ns *NoiseState, sessionData *Sess
 		return err
 	}
 
-	// TODO:
-	//
-	// before compressing, we have to move the coap headers to the cleartext payload
+	// Before compressing, we have to move the coap headers to the cleartext payload
 	// we move:
 	//
 	//  0                   1                   2                   3
@@ -434,7 +432,6 @@ func (conn *connUDP) sendMessage(data Message, ns *NoiseState, sessionData *Sess
 		}
 
 		if data.Type() == Confirmable {
-			// TODO: Figure out a sensible value for timeToRetry.
 			go conn.retriesQueue.ScheduleRetry(mID, buf.Bytes(), sessionData, conn)
 
 			// Increment the sequence number for the next message.
@@ -449,12 +446,6 @@ func (conn *connUDP) sendMessage(data Message, ns *NoiseState, sessionData *Sess
 	return err
 
 	// TODO:
-	// Rather than having noise send directly or handle retries itself, noise needs to pass
-	// back the payload and we then retry (re)sending it here, as a bunch of bits.
-	//
-	// We need to track the msgid+token pair of the confirmable messages being sent, so we know when to
-	// keep retrying.  (As when we receive the ID of the response, we should stop retrying.)
-	//
 	// We may need a mechanism to unwedge wedged noisepipes	(e.g. actively rehandshake if the retry
 	// schedule expires or if we have a gap of > 128 in the queue)
 }
