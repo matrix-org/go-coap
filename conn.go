@@ -367,10 +367,8 @@ func (conn *connUDP) sendMessage(data Message, ns *NoiseState, sessionData *Sess
 	// IK1       | 0 (CON)   | 252       |
 	// IK2       | 2 (ACK)   | 252       |
 
-	// We could be naughty and set Ver=011b rather than 001b to indicate
+	// We decided to be naughty and set Ver=011b rather than 001b to indicate
 	// that encryption is turned on, in order to negotiate it more elegantly
-
-	//  On sending the response to a
 
 	var compressed []byte
 	if srv.Compressor != nil {
