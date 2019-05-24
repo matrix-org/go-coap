@@ -1,10 +1,10 @@
 package coap
 
 import (
-	// "encoding/base64"
+	"encoding/base64"
 	"net"
 	"runtime"
-	"strings"
+	//"strings"
 	// "log"
 
 	"golang.org/x/net/ipv4"
@@ -39,8 +39,8 @@ func (s *SessionUDPData) RemoteAddr() net.Addr { return s.raddr }
 
 // Key returns the key session for the map using
 func (s *SessionUDPData) Key() string {
-	// key := s.RemoteAddr().String() + "-" + base64.StdEncoding.EncodeToString(s.context)
-	key := strings.Split(s.RemoteAddr().String(), ":")[0]
+	key := s.RemoteAddr().String() + "-" + base64.StdEncoding.EncodeToString(s.context)
+	//key := strings.Split(s.RemoteAddr().String(), ":")[0]
 	return key
 }
 
