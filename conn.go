@@ -220,10 +220,10 @@ func (conn *connUDP) ReadFromSessionUDP(m []byte) (int, *SessionUDPData, error) 
 		return n, sessionData, err
 	}
 
-	debugf("Resetting connection because of error: %s", err.Error())
-	if err = conn.resetConnection(); err != nil {
-		return 0, nil, err
-	}
+	//debugf("Resetting connection because of error: %s", err.Error())
+	//if err = conn.resetConnection(); err != nil {
+	//	return 0, nil, err
+	//}
 	return ReadFromSessionUDP(conn.connection, m)
 }
 
@@ -267,11 +267,16 @@ func (conn *connUDP) extractRetryHeaders(m []byte) (h retryHeaders, pl []byte) {
 
 	debugf("Received message using CoAP version %d, of type %d and code %d, and with message ID %d, token of length %d, and sequence number %d\n", m[0]>>6, t, code, messageID, tkl, uint8(seqnum))
 
-	conn.retriesQueue.CancelRetrySchedule(messageID)
-
 	// If state is READY then the payload should be decrypted using the sequence
 	// number. Otherwise, we just let the noise pipeline do its job.
 	state := getNoisePipelineState(t, code)
+
+	if state == READY {
+		debugf("Not a handshake message: cancelling the retry schedule for message %d", messageID)
+		conn.retriesQueue.CancelRetrySchedule(messageID)
+	} else {
+		debugf("Handshake message: not cancelling the retry schedule for message %d", messageID)
+	}
 
 	h = retryHeaders{
 		seqnum: seqnum,

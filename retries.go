@@ -21,7 +21,7 @@ type RetriesQueue struct {
 }
 
 type queueEl struct {
-	ch chan bool
+	cancelCh chan bool
 	// We need to store sequence numbers in the queue in order to detect and
 	// measure holes in the message queue, e.g. we'd need to re-handshake if we
 	// observe a gap higher than 128 msgs (max(seqnum)/2).
@@ -51,11 +51,11 @@ func (rq *RetriesQueue) ScheduleRetry(mID uint16, b []byte, session *SessionUDPD
 
 	rq.mut.Lock()
 
-	ch := make(chan bool)
+	cancelCh := make(chan bool)
 	if _, ok := rq.q[mID]; !ok {
 		rq.q[mID] = queueEl{
 			seqnum: rq.seqnum,
-			ch:     ch,
+			cancelCh: cancelCh,
 		}
 	}
 
@@ -71,22 +71,22 @@ func (rq *RetriesQueue) ScheduleRetry(mID uint16, b []byte, session *SessionUDPD
 
 	rq.mut.Unlock()
 
-	rq.retryIfNoResp(mID, ch, rq.initDelay, b, session, conn)
+	rq.retryIfNoResp(mID, cancelCh, rq.initDelay, b, session, conn)
 }
 
-func (rq *RetriesQueue) retryIfNoResp(mID uint16, ch chan bool, delay time.Duration, b []byte, session *SessionUDPData, conn *connUDP) {
+func (rq *RetriesQueue) retryIfNoResp(mID uint16, cancelCh chan bool, delay time.Duration, b []byte, session *SessionUDPData, conn *connUDP) {
 	select {
-	case <-ch:
+	case <-cancelCh:
 		// Cancel retry
 		debugf("Received response for message %d, not retrying", mID)
 		return
-	case <-time.After(rq.initDelay):
+	case <-time.After(delay):
 		debugf("No response for message %d, retrying", mID)
 		if err := conn.writeToSession(b, session); err != nil {
 			debugf("Retried failed: %s", err.Error())
 		}
 		// Wait a bit more then retry
-		rq.retryIfNoResp(mID, ch, delay*rq.multiplier, b, session, conn)
+		rq.retryIfNoResp(mID, cancelCh, delay*rq.multiplier, b, session, conn)
 	}
 }
 
@@ -112,7 +112,7 @@ func (rq *RetriesQueue) CancelRetrySchedule(mID uint16) {
 	if _, ok := rq.q[mID]; ok {
 		debugf("Cancelling retry schedule for message %d", mID)
 
-		rq.q[mID].ch <- true
+		rq.q[mID].cancelCh <- true
 		delete(rq.q, mID)
 	}
 

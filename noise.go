@@ -168,18 +168,15 @@ func (ns *NoiseState) EncryptMessage(msg []byte, connUDP *connUDP, sessionUDPDat
 
 	switch ns.PipeState {
 	case XX1: // -> e
-		if ns.Initiator {
-			debugf("I Sending XX1: -> e")
-			msg, _, _, err = ns.Hs.WriteMessage(nil, nil)
-			debugf("Sending XX1 handshake message %X", msg)
-			if err != nil {
-				return nil, errors.New("XX1 handshake encryption failed with " + err.Error())
-			}
-			ns.PipeState = XX2
-			return msg, err
+		ns.Initiator = true
+		debugf("I Sending XX1: -> e")
+		msg, _, _, err = ns.Hs.WriteMessage(nil, nil)
+		debugf("Sending XX1 handshake message %X", msg)
+		if err != nil {
+			return nil, errors.New("XX1 handshake encryption failed with " + err.Error())
 		}
-
-		return nil, ErrIncoherentHandshakeMsg
+		ns.PipeState = XX2
+		return msg, err
 
 	case XX2: // <- e, ee, s, es + payload
 		if !ns.Initiator {
@@ -282,6 +279,8 @@ func (ns *NoiseState) DecryptMessage(msg, payload []byte, seqnum uint8, connUDP 
 
 	switch ns.PipeState {
 	case XX1: // -> e
+		debugf("The other part of the connection is trying to re-handshake, sending XX2")
+		ns.Initiator = false
 		if !ns.Initiator {
 			debugf("Received XX1 handshake message %X", msg)
 			// N.B. this is only ever called during fallback from IK1.

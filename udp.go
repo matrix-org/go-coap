@@ -58,7 +58,7 @@ func ReadFromSessionUDP(conn *net.UDPConn, b []byte) (int, *SessionUDPData, erro
 
 // WriteToSessionUDP acts just like net.UDPConn.WriteTo(), but uses a *SessionUDPData instead of a net.Addr.
 func WriteToSessionUDP(conn *net.UDPConn, b []byte, session *SessionUDPData) (int, error) {
-	debugf("NETWORK: Writing to %s", session.raddr.String())
+	debugf("NETWORK: Writing to %s from %s", session.raddr.String(), conn.LocalAddr().String())
 
 	//log.Printf("sending %v", b)
 
