@@ -54,7 +54,7 @@ func (rq *RetriesQueue) ScheduleRetry(mID uint16, b []byte, session *SessionUDPD
 	cancelCh := make(chan bool)
 	if _, ok := rq.q[mID]; !ok {
 		rq.q[mID] = queueEl{
-			seqnum: rq.seqnum,
+			seqnum:   rq.seqnum,
 			cancelCh: cancelCh,
 		}
 	}
