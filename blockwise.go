@@ -114,6 +114,7 @@ func exchangeDrivedByPeer(session networkSession, req Message, blockType OptionI
 	case resp := <-pair:
 		return resp.Msg, nil
 	case <-time.After(session.ReadDeadline()):
+		log.Printf("exchangeDrivedByPeer timeout tok/msgID=%X %v, timeout=%v", req.Token(), req.MessageID(), session.ReadDeadline())
 		return nil, ErrTimeout
 	}
 }

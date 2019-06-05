@@ -38,6 +38,7 @@ func (wreq *writeReqBase) waitResp(timeout time.Duration) error {
 	case err := <-wreq.respChan:
 		return err
 	case <-time.After(timeout):
+		log.Printf("waitResp timeout tok/msgId=%X %v timeout=%v", wreq.req.Token(), wreq.req.MessageID(), timeout)
 		return ErrTimeout
 	}
 }
@@ -128,6 +129,7 @@ func (conn *connBase) write(w writeReq, timeout time.Duration) error {
 	case conn.writeChan <- w:
 		return w.waitResp(timeout)
 	case <-time.After(timeout):
+		log.Printf("write timeout tok/msgID=%X %v timeout=%v", w.data().Token(), w.data().MessageID(), timeout)
 		return ErrTimeout
 	}
 }
@@ -341,6 +343,8 @@ func (conn *connUDP) sendMessage(data Message, ns *NoiseState, sessionData *Sess
 	if err != nil {
 		return err
 	}
+
+	log.Printf("Sending message token/msgID: %X %v, type/cpde: %v %v", data.Token(), data.MessageID(), data.Type(), data.Code())
 
 	// Before compressing, we have to move the coap headers to the cleartext payload
 	// we move:

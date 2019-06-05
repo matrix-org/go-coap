@@ -86,8 +86,8 @@ func newSessionUDP(connection Conn, srv *Server, sessionUDPData *SessionUDPData,
 		sessionBase: sessionBase{
 			srv:                  srv,
 			connection:           connection,
-			readDeadline:         30 * time.Second,
-			writeDeadline:        30 * time.Second,
+			readDeadline:         5 * 60 * time.Second,
+			writeDeadline:        5 * 60 * time.Second,
 			handler:              &TokenHandler{tokenHandlers: make(map[[MaxTokenSize]byte]HandlerFunc)},
 			blockWiseTransfer:    BlockWiseTransfer,
 			blockWiseTransferSzx: uint32(BlockWiseTransferSzx),
@@ -369,6 +369,7 @@ func (s *sessionBase) exchangeFunc(req Message, writeTimeout, readTimeout time.D
 	case resp := <-pairChan.ch:
 		return resp.Msg, nil
 	case <-time.After(readTimeout):
+		log.Printf("exchangeFunc timeout tok/msgID=%X %v timeout=%v", req.Token(), req.MessageID(), readTimeout)
 		return nil, ErrTimeout
 	}
 }

@@ -758,6 +758,8 @@ func (srv *Server) serveUDP(conn *net.UDPConn) error {
 			continue
 		}
 
+		log.Printf("Got message token/msgID: %X %v, type/cpde: %v %v", msg.Token(), msg.MessageID(), msg.Type(), msg.Code())
+
 		// log.Printf("Decompressed msg %s: %d -> %d bytes", msg.Token(), len(m), len(decompressed))
 
 		srv.spawnWorker(&Request{Msg: msg, Client: &ClientCommander{session}})
