@@ -3,7 +3,7 @@ package mux_test
 import (
 	"log"
 
-	"github.com/plgd-dev/go-coap/v2/mux"
+	"github.com/matrix-org/go-coap/v2/mux"
 )
 
 // Middleware function, which will be called for each request

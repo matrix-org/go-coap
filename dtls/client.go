@@ -7,15 +7,15 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v2"
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/net/blockwise"
-	"github.com/plgd-dev/go-coap/v2/net/monitor/inactivity"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/net/blockwise"
+	"github.com/matrix-org/go-coap/v2/net/monitor/inactivity"
 
-	"github.com/plgd-dev/go-coap/v2/message/codes"
-	coapNet "github.com/plgd-dev/go-coap/v2/net"
-	"github.com/plgd-dev/go-coap/v2/udp/client"
-	udpMessage "github.com/plgd-dev/go-coap/v2/udp/message"
-	"github.com/plgd-dev/go-coap/v2/udp/message/pool"
+	"github.com/matrix-org/go-coap/v2/message/codes"
+	coapNet "github.com/matrix-org/go-coap/v2/net"
+	"github.com/matrix-org/go-coap/v2/udp/client"
+	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
+	"github.com/matrix-org/go-coap/v2/udp/message/pool"
 	kitSync "github.com/plgd-dev/kit/sync"
 )
 

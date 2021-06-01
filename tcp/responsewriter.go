@@ -3,10 +3,10 @@ package tcp
 import (
 	"io"
 
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/message/codes"
-	"github.com/plgd-dev/go-coap/v2/message/noresponse"
-	"github.com/plgd-dev/go-coap/v2/tcp/message/pool"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/message/codes"
+	"github.com/matrix-org/go-coap/v2/message/noresponse"
+	"github.com/matrix-org/go-coap/v2/tcp/message/pool"
 )
 
 // A ResponseWriter interface is used by an CAOP handler to construct an COAP response.

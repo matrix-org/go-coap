@@ -3,11 +3,11 @@ package client
 import (
 	"io"
 
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/message/codes"
-	"github.com/plgd-dev/go-coap/v2/mux"
-	udpMessage "github.com/plgd-dev/go-coap/v2/udp/message"
-	"github.com/plgd-dev/go-coap/v2/udp/message/pool"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/message/codes"
+	"github.com/matrix-org/go-coap/v2/mux"
+	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
+	"github.com/matrix-org/go-coap/v2/udp/message/pool"
 )
 
 func HandlerFuncToMux(m mux.Handler) HandlerFunc {

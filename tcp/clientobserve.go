@@ -7,10 +7,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/message/codes"
-	"github.com/plgd-dev/go-coap/v2/net/observation"
-	"github.com/plgd-dev/go-coap/v2/tcp/message/pool"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/message/codes"
+	"github.com/matrix-org/go-coap/v2/net/observation"
+	"github.com/matrix-org/go-coap/v2/tcp/message/pool"
 )
 
 func NewObservationHandler(obsertionTokenHandler *HandlerContainer, next HandlerFunc) HandlerFunc {

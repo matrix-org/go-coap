@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/plgd-dev/go-coap/v2/mux"
-	"github.com/plgd-dev/go-coap/v2/net/monitor/inactivity"
+	"github.com/matrix-org/go-coap/v2/mux"
+	"github.com/matrix-org/go-coap/v2/net/monitor/inactivity"
 
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/message/codes"
-	coapNet "github.com/plgd-dev/go-coap/v2/net"
-	"github.com/plgd-dev/go-coap/v2/udp/client"
-	udpMessage "github.com/plgd-dev/go-coap/v2/udp/message"
-	"github.com/plgd-dev/go-coap/v2/udp/message/pool"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/message/codes"
+	coapNet "github.com/matrix-org/go-coap/v2/net"
+	"github.com/matrix-org/go-coap/v2/udp/client"
+	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
+	"github.com/matrix-org/go-coap/v2/udp/message/pool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

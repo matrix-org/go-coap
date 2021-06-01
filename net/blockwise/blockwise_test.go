@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/dsnet/golib/memfile"
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/message/codes"
-	udpMessage "github.com/plgd-dev/go-coap/v2/udp/message"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/message/codes"
+	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

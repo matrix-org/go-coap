@@ -7,9 +7,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	coapNet "github.com/plgd-dev/go-coap/v2/net"
-	"github.com/plgd-dev/go-coap/v2/udp/client"
-	"github.com/plgd-dev/go-coap/v2/udp/message/pool"
+	coapNet "github.com/matrix-org/go-coap/v2/net"
+	"github.com/matrix-org/go-coap/v2/udp/client"
+	"github.com/matrix-org/go-coap/v2/udp/message/pool"
 )
 
 type EventFunc = func()

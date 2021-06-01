@@ -3,7 +3,7 @@ package noresponse
 import (
 	"testing"
 
-	"github.com/plgd-dev/go-coap/v2/message/codes"
+	"github.com/matrix-org/go-coap/v2/message/codes"
 	"github.com/stretchr/testify/require"
 )
 

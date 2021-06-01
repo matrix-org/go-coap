@@ -5,9 +5,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/plgd-dev/go-coap/v2/net/blockwise"
-	"github.com/plgd-dev/go-coap/v2/net/monitor/inactivity"
-	"github.com/plgd-dev/go-coap/v2/udp/client"
+	"github.com/matrix-org/go-coap/v2/net/blockwise"
+	"github.com/matrix-org/go-coap/v2/net/monitor/inactivity"
+	"github.com/matrix-org/go-coap/v2/udp/client"
 )
 
 // HandlerFuncOpt handler function option.

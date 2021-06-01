@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/message/codes"
-	coapNet "github.com/plgd-dev/go-coap/v2/net"
-	"github.com/plgd-dev/go-coap/v2/tcp/message/pool"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/message/codes"
+	coapNet "github.com/matrix-org/go-coap/v2/net"
+	"github.com/matrix-org/go-coap/v2/tcp/message/pool"
 	"github.com/stretchr/testify/require"
 )
 

@@ -5,8 +5,8 @@ import (
 	"io"
 	"sync"
 
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/message/codes"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/message/codes"
 )
 
 type ResponseWriter = interface {

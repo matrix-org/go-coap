@@ -12,14 +12,14 @@ import (
 	"time"
 
 	piondtls "github.com/pion/dtls/v2"
-	"github.com/plgd-dev/go-coap/v2/dtls"
-	"github.com/plgd-dev/go-coap/v2/examples/dtls/pki"
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/message/codes"
-	coapNet "github.com/plgd-dev/go-coap/v2/net"
-	"github.com/plgd-dev/go-coap/v2/net/monitor/inactivity"
-	"github.com/plgd-dev/go-coap/v2/udp/client"
-	"github.com/plgd-dev/go-coap/v2/udp/message/pool"
+	"github.com/matrix-org/go-coap/v2/dtls"
+	"github.com/matrix-org/go-coap/v2/examples/dtls/pki"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/message/codes"
+	coapNet "github.com/matrix-org/go-coap/v2/net"
+	"github.com/matrix-org/go-coap/v2/net/monitor/inactivity"
+	"github.com/matrix-org/go-coap/v2/udp/client"
+	"github.com/matrix-org/go-coap/v2/udp/message/pool"
 	"github.com/stretchr/testify/require"
 )
 

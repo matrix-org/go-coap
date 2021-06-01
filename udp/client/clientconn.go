@@ -11,12 +11,12 @@ import (
 	atomicTypes "go.uber.org/atomic"
 
 	"github.com/patrickmn/go-cache"
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/net/blockwise"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/net/blockwise"
 
-	"github.com/plgd-dev/go-coap/v2/message/codes"
-	udpMessage "github.com/plgd-dev/go-coap/v2/udp/message"
-	"github.com/plgd-dev/go-coap/v2/udp/message/pool"
+	"github.com/matrix-org/go-coap/v2/message/codes"
+	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
+	"github.com/matrix-org/go-coap/v2/udp/message/pool"
 	kitSync "github.com/plgd-dev/kit/sync"
 )
 

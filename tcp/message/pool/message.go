@@ -8,9 +8,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/plgd-dev/go-coap/v2/message"
-	"github.com/plgd-dev/go-coap/v2/message/pool"
-	tcp "github.com/plgd-dev/go-coap/v2/tcp/message"
+	"github.com/matrix-org/go-coap/v2/message"
+	"github.com/matrix-org/go-coap/v2/message/pool"
+	tcp "github.com/matrix-org/go-coap/v2/tcp/message"
 )
 
 const maxMessagePool = 10240

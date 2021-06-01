@@ -1,21 +1,18 @@
-[![Build Status](https://travis-ci.com/plgd-dev/go-coap.svg?branch=master)](https://travis-ci.com/plgd-dev/go-coap)
-[![codecov](https://codecov.io/gh/plgd-dev/go-coap/branch/master/graph/badge.svg)](https://codecov.io/gh/plgd-dev/go-coap)
-[![Go Report](https://goreportcard.com/badge/github.com/plgd-dev/go-coap)](https://goreportcard.com/report/github.com/plgd-dev/go-coap)
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fplgd-dev%2Fgo-coap.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fplgd-dev%2Fgo-coap?ref=badge_shield)
-[![backer](https://opencollective.com/go-coap/backers/badge.svg)](https://opencollective.com/go-coap#backer)
-[![sponsors](https://opencollective.com/go-coap/sponsors/badge.svg)](https://opencollective.com/go-coap#sponsors)
-[![contributors](https://img.shields.io/github/contributors/plgd-dev/go-coap)](https://github.com/plgd-dev/go-coap/graphs/contributors)
-[![GitHub stars](https://img.shields.io/github/stars/plgd-dev/go-coap)](https://github.com/plgd-dev/go-coap/stargazers)
-[![GitHub license](https://img.shields.io/github/license/plgd-dev/go-coap)](https://github.com/plgd-dev/go-coap/blob/master/LICENSE)
-[![GoDoc](https://godoc.org/github.com/plgd-dev/go-coap?status.svg)](https://godoc.org/github.com/plgd-dev/go-coap)
-[![Sourcegraph](https://sourcegraph.com/github.com/plgd-dev/go-coap/-/badge.svg)](https://sourcegraph.com/github.com/plgd-dev/go-coap?badge)
-
 # Go-CoAP
 
-The Constrained Application Protocol (CoAP) is a specialized web transfer protocol for use with constrained nodes and constrained networks in the Internet of Things.
-The protocol is designed for machine-to-machine (M2M) applications such as smart energy and building automation.
+This is the matrix.org fork of go-coap, specialised for [MSC3079](https://github.com/matrix-org/matrix-doc/pull/3079).
+There are several reasons to fork [the original implementation](https://github.com/plgd-dev/go-coap):
+ - FIN packet handling is easier to do at the go-coap level, and is matrix.org specific.
+   See [these comments](https://github.com/matrix-org/matrix-doc/blob/kegan/low-bandwidth/proposals/3079-low-bandwidth-csapi.md#potential-issues) for context.
+ - We were hitting many known issues with the original implementation around retry handling, congestion control (NSTART handling),
+   accessing MIDs on UDP messages, etc.
+ - We want to add WebSockets support.
 
-The go-coap provides servers and clients for DTLS, TCP-TLS, UDP, TCP in golang language.
+This repo was originally forked from an even earlier implementation for
+[FOSDEM 2019](https://matrix.org/blog/2019/03/12/breaking-the-100-bps-barrier-with-matrix-meshsim-coap-proxy), but this new
+work is based on [v2.4.0](https://github.com/plgd-dev/go-coap/releases/tag/v2.4.0).
+
+The go-coap provides servers and clients for DTLS, TCP-TLS, UDP, TCP in golang.
 
 ## Features
 * CoAP over UDP [RFC 7252][coap].
@@ -127,24 +124,3 @@ In order to run the tests that the CI will run locally, the following two comman
 $ docker build . --network=host -t go-coap:build --target build
 $ docker run --mount type=bind,source="$(pwd)",target=/shared,readonly --network=host go-coap:build go test './...'
 ```
-
-## License
-Apache 2.0
-
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fplgd-dev%2Fgo-coap.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fplgd-dev%2Fgo-coap?ref=badge_large)
-
-<h2 align="center">Sponsors</h2>
-
-[Become a sponsor](https://opencollective.com/go-coap#sponsor) and get your logo on our README on Github with a link to your site.
-
-<div align="center">
-
-<a href="https://opencollective.com/go-coap/sponsor/0/website?requireActive=false" target="_blank"><img src="https://opencollective.com/go-coap/sponsor/0/avatar.svg?requireActive=false"></a>
-
-</div>
-
-<h2 align="center">Backers</h2>
-
-[Become a backer](https://opencollective.com/go-coap#backer) and get your image on our README on Github with a link to your site.
-
-<a href="https://opencollective.com/go-coap/backer/0/website?requireActive=false" target="_blank"><img src="https://opencollective.com/go-coap/backer/0/avatar.svg?requireActive=false"></a>
