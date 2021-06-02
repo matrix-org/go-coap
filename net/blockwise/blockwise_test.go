@@ -218,8 +218,8 @@ func makeDo(t *testing.T, sender, receiver *BlockWise, senderMaxSZX SZX, senderM
 }
 
 func TestBlockWise_Do(t *testing.T) {
-	sender := NewBlockWise(acquireMessage, releaseMessage, time.Second*3600, func(err error) { t.Log(err) }, true, nil)
-	receiver := NewBlockWise(acquireMessage, releaseMessage, time.Second*3600, func(err error) { t.Log(err) }, true, nil)
+	sender := NewBlockWise(acquireMessage, releaseMessage, time.Second*3600, func(err error) { t.Log(err) }, true, nil, nil)
+	receiver := NewBlockWise(acquireMessage, releaseMessage, time.Second*3600, func(err error) { t.Log(err) }, true, nil, nil)
 	type args struct {
 		r              Message
 		szx            SZX
@@ -553,8 +553,8 @@ func makeWriteReq(t *testing.T, sender, receiver *BlockWise, senderMaxSZX SZX, s
 }
 
 func TestBlockWise_Writetestmessage(t *testing.T) {
-	sender := NewBlockWise(acquireMessage, releaseMessage, time.Second*3600, func(err error) { t.Log(err) }, true, nil)
-	receiver := NewBlockWise(acquireMessage, releaseMessage, time.Second*3600, func(err error) { t.Log(err) }, true, nil)
+	sender := NewBlockWise(acquireMessage, releaseMessage, time.Second*3600, func(err error) { t.Log(err) }, true, nil, nil)
+	receiver := NewBlockWise(acquireMessage, releaseMessage, time.Second*3600, func(err error) { t.Log(err) }, true, nil, nil)
 	type args struct {
 		r                Message
 		szx              SZX

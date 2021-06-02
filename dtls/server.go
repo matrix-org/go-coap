@@ -7,15 +7,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/dtls/v2"
 	"github.com/matrix-org/go-coap/v2/message"
 	"github.com/matrix-org/go-coap/v2/message/codes"
 	coapNet "github.com/matrix-org/go-coap/v2/net"
 	"github.com/matrix-org/go-coap/v2/net/blockwise"
 	"github.com/matrix-org/go-coap/v2/net/monitor/inactivity"
+	"github.com/matrix-org/go-coap/v2/shared"
 	"github.com/matrix-org/go-coap/v2/udp/client"
 	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
 	"github.com/matrix-org/go-coap/v2/udp/message/pool"
+	"github.com/pion/dtls/v2"
 	kitSync "github.com/plgd-dev/kit/sync"
 )
 
@@ -92,6 +93,7 @@ type serverOptions struct {
 	transmissionAcknowledgeTimeout time.Duration
 	transmissionMaxRetransmit      int
 	getMID                         GetMIDFunc
+	logger                         shared.Logger
 }
 
 // Listener defined used by coap
@@ -121,6 +123,7 @@ type Server struct {
 
 	listen      Listener
 	listenMutex sync.Mutex
+	logger      shared.Logger
 }
 
 func NewServer(opt ...ServerOption) *Server {
@@ -163,6 +166,7 @@ func NewServer(opt ...ServerOption) *Server {
 		transmissionAcknowledgeTimeout: opts.transmissionAcknowledgeTimeout,
 		transmissionMaxRetransmit:      opts.transmissionMaxRetransmit,
 		getMID:                         opts.getMID,
+		logger:                         opts.logger,
 	}
 }
 
@@ -266,6 +270,7 @@ func (s *Server) createClientConn(connection *coapNet.Conn, monitor inactivity.M
 			func(token message.Token) (blockwise.Message, bool) {
 				return nil, false
 			},
+			s.logger,
 		)
 	}
 	obsHandler := client.NewHandlerContainer()
@@ -289,6 +294,7 @@ func (s *Server) createClientConn(connection *coapNet.Conn, monitor inactivity.M
 		s.errors,
 		s.getMID,
 		monitor,
+		nil,
 	)
 
 	return cc

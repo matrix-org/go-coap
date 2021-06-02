@@ -160,6 +160,7 @@ func Client(conn net.Conn, opts ...DialOption) *ClientConn {
 			cfg.errors,
 			false,
 			bwCreateHandlerFunc(observationRequests),
+			nil,
 		)
 	}
 

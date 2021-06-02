@@ -10,9 +10,10 @@ import (
 
 	atomicTypes "go.uber.org/atomic"
 
-	"github.com/patrickmn/go-cache"
 	"github.com/matrix-org/go-coap/v2/message"
 	"github.com/matrix-org/go-coap/v2/net/blockwise"
+	"github.com/matrix-org/go-coap/v2/shared"
+	"github.com/patrickmn/go-cache"
 
 	"github.com/matrix-org/go-coap/v2/message/codes"
 	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
@@ -59,6 +60,7 @@ type ClientConn struct {
 	responseMsgCache        *cache.Cache
 	msgIdMutex              *MutexMap
 	activityMonitor         Notifier
+	logger                  shared.Logger
 
 	tokenHandlerContainer *HandlerContainer
 	midHandlerContainer   *HandlerContainer
@@ -102,6 +104,7 @@ func NewClientConn(
 	errors ErrorFunc,
 	getMID GetMIDFunc,
 	activityMonitor Notifier,
+	logger shared.Logger,
 ) *ClientConn {
 	if errors == nil {
 		errors = func(error) {}
@@ -112,9 +115,13 @@ func NewClientConn(
 	if activityMonitor == nil {
 		activityMonitor = &nilNotifier{}
 	}
+	if logger == nil {
+		logger = &shared.NOPLogger{}
+	}
 
 	return &ClientConn{
 		session:                 session,
+		logger:                  logger,
 		observationTokenHandler: observationTokenHandler,
 		observationRequests:     observationRequests,
 		transmission: &Transmission{
@@ -152,6 +159,7 @@ func (cc *ClientConn) do(req *pool.Message) (*pool.Message, error) {
 	if token == nil {
 		return nil, fmt.Errorf("invalid token")
 	}
+	cc.logger.Printf("ClientConn.do token=%v", token)
 
 	respChan := make(chan *pool.Message, 1)
 	err := cc.tokenHandlerContainer.Insert(token, func(w *ResponseWriter, r *pool.Message) {
@@ -201,9 +209,11 @@ func (cc *ClientConn) Do(req *pool.Message) (*pool.Message, error) {
 func (cc *ClientConn) writeMessage(req *pool.Message) error {
 	req.SetMessageID(cc.getMID())
 	respChan := make(chan struct{})
+	isConfirmable := req.Type() == udpMessage.Confirmable
+	cc.logger.Printf("ClientConn.writeMessage MID=%v Confirmable=%v", req.MessageID(), isConfirmable)
 
 	// Only confirmable messages ever match an message ID
-	if req.Type() == udpMessage.Confirmable {
+	if isConfirmable {
 		err := cc.midHandlerContainer.Insert(req.MessageID(), func(w *ResponseWriter, r *pool.Message) {
 			close(respChan)
 			if r.IsSeparate() {
@@ -244,6 +254,10 @@ func (cc *ClientConn) writeMessage(req *pool.Message) error {
 			case <-cc.session.Context().Done():
 				return fmt.Errorf("connection was closed: %w", cc.Context().Err())
 			case <-time.After(cc.transmission.nStart.Load()):
+				cc.logger.Printf(
+					"ClientConn.writeMessage MID=%v Confirmable=%v ACK timeout expired, retrying (%d/%d)",
+					req.MessageID(), isConfirmable, i+1, maxRetransmit,
+				)
 				err = cc.session.WriteMessage(req)
 				if err != nil {
 					return fmt.Errorf("cannot write request: %w", err)
@@ -262,34 +276,6 @@ func (cc *ClientConn) WriteMessage(req *pool.Message) error {
 	return cc.blockWise.WriteMessage(req, cc.blockwiseSZX, cc.session.MaxMessageSize(), func(bwreq blockwise.Message) error {
 		return cc.writeMessage(bwreq.(*pool.Message))
 	})
-}
-
-func (cc *ClientConn) doWithMID(req *pool.Message) (*pool.Message, error) {
-	respChan := make(chan *pool.Message, 1)
-	err := cc.midHandlerContainer.Insert(req.MessageID(), func(w *ResponseWriter, r *pool.Message) {
-		r.Hijack()
-		select {
-		case respChan <- r:
-		default:
-		}
-	})
-	if err != nil {
-		return nil, fmt.Errorf("cannot insert mid handler: %w", err)
-	}
-	defer cc.midHandlerContainer.Pop(req.MessageID())
-	err = cc.session.WriteMessage(req)
-	if err != nil {
-		return nil, fmt.Errorf("cannot write request: %w", err)
-	}
-
-	select {
-	case <-req.Context().Done():
-		return nil, req.Context().Err()
-	case <-cc.session.Context().Done():
-		return nil, fmt.Errorf("connection was closed: %w", cc.session.Context().Err())
-	case resp := <-respChan:
-		return resp, nil
-	}
 }
 
 func newCommonRequest(ctx context.Context, code codes.Code, path string, opts ...message.Option) (*pool.Message, error) {

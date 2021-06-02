@@ -12,6 +12,7 @@ import (
 	coapNet "github.com/matrix-org/go-coap/v2/net"
 	"github.com/matrix-org/go-coap/v2/net/blockwise"
 	"github.com/matrix-org/go-coap/v2/net/monitor/inactivity"
+	"github.com/matrix-org/go-coap/v2/shared"
 	"github.com/matrix-org/go-coap/v2/udp/client"
 	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
 	"github.com/matrix-org/go-coap/v2/udp/message/pool"
@@ -81,6 +82,7 @@ type serverOptions struct {
 	transmissionAcknowledgeTimeout time.Duration
 	transmissionMaxRetransmit      int
 	getMID                         GetMIDFunc
+	logger                         shared.Logger
 }
 
 type Server struct {
@@ -109,6 +111,7 @@ type Server struct {
 
 	listen      *coapNet.UDPConn
 	listenMutex sync.Mutex
+	logger      shared.Logger
 }
 
 func NewServer(opt ...ServerOption) *Server {
@@ -155,6 +158,7 @@ func NewServer(opt ...ServerOption) *Server {
 		transmissionAcknowledgeTimeout: opts.transmissionAcknowledgeTimeout,
 		transmissionMaxRetransmit:      opts.transmissionMaxRetransmit,
 		getMID:                         opts.getMID,
+		logger:                         opts.logger,
 
 		conns: make(map[string]*client.ClientConn),
 	}
@@ -330,6 +334,7 @@ func (s *Server) getOrCreateClientConn(UDPConn *coapNet.UDPConn, raddr *net.UDPA
 				s.errors,
 				false,
 				bwCreateHandlerFunc(s.multicastRequests),
+				s.logger,
 			)
 		}
 		obsHandler := client.NewHandlerContainer()
@@ -362,6 +367,7 @@ func (s *Server) getOrCreateClientConn(UDPConn *coapNet.UDPConn, raddr *net.UDPA
 			s.errors,
 			s.getMID,
 			monitor,
+			s.logger,
 		)
 		cc.SetContextValue(inactivityMonitorKey, monitor)
 		cc.SetContextValue(closeKey, func() {

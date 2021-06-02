@@ -246,6 +246,7 @@ func (s *Server) createClientConn(connection *coapNet.Conn, monitor inactivity.M
 			func(token message.Token) (blockwise.Message, bool) {
 				return nil, false
 			},
+			nil,
 		)
 	}
 	obsHandler := NewHandlerContainer()

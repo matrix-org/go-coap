@@ -6,10 +6,11 @@ import (
 	"net"
 	"time"
 
-	"github.com/pion/dtls/v2"
 	"github.com/matrix-org/go-coap/v2/message"
 	"github.com/matrix-org/go-coap/v2/net/blockwise"
 	"github.com/matrix-org/go-coap/v2/net/monitor/inactivity"
+	"github.com/matrix-org/go-coap/v2/shared"
+	"github.com/pion/dtls/v2"
 
 	"github.com/matrix-org/go-coap/v2/message/codes"
 	coapNet "github.com/matrix-org/go-coap/v2/net"
@@ -70,6 +71,7 @@ type dialOptions struct {
 	getMID                         GetMIDFunc
 	closeSocket                    bool
 	createInactivityMonitor        func() inactivity.Monitor
+	logger                         shared.Logger
 }
 
 // A DialOption sets options such as credentials, keepalive parameters, etc.
@@ -153,6 +155,7 @@ func Client(conn *dtls.Conn, opts ...DialOption) *client.ClientConn {
 			cfg.errors,
 			false,
 			bwCreateHandlerFunc(observatioRequests),
+			cfg.logger,
 		)
 	}
 
@@ -178,6 +181,7 @@ func Client(conn *dtls.Conn, opts ...DialOption) *client.ClientConn {
 		cfg.getMID,
 		// The client does not support activity monitoring yet
 		monitor,
+		cfg.logger,
 	)
 
 	go func() {

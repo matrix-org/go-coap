@@ -7,6 +7,7 @@ import (
 
 	"github.com/matrix-org/go-coap/v2/net/blockwise"
 	"github.com/matrix-org/go-coap/v2/net/monitor/inactivity"
+	"github.com/matrix-org/go-coap/v2/shared"
 	"github.com/matrix-org/go-coap/v2/udp/client"
 )
 
@@ -318,4 +319,22 @@ func WithDialer(dialer *net.Dialer) DialerOpt {
 	return DialerOpt{
 		dialer: dialer,
 	}
+}
+
+// LoggerOpt adds logging to this library
+type LoggerOpt struct {
+	logger shared.Logger
+}
+
+func (o LoggerOpt) apply(opts *serverOptions) {
+	opts.logger = o.logger
+}
+
+func (o LoggerOpt) applyDial(opts *dialOptions) {
+	opts.logger = o.logger
+}
+
+// WithLogger adds logging
+func WithLogger(logger shared.Logger) LoggerOpt {
+	return LoggerOpt{logger: logger}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/matrix-org/go-coap/v2/message"
 	"github.com/matrix-org/go-coap/v2/net/blockwise"
 	"github.com/matrix-org/go-coap/v2/net/monitor/inactivity"
+	"github.com/matrix-org/go-coap/v2/shared"
 	kitSync "github.com/plgd-dev/kit/sync"
 
 	"github.com/matrix-org/go-coap/v2/message/codes"
@@ -69,6 +70,7 @@ type dialOptions struct {
 	getMID                         GetMIDFunc
 	closeSocket                    bool
 	createInactivityMonitor        func() inactivity.Monitor
+	logger                         shared.Logger
 }
 
 // A DialOption sets options such as credentials, keepalive parameters, etc.
@@ -153,6 +155,7 @@ func Client(conn *net.UDPConn, opts ...DialOption) *client.ClientConn {
 			cfg.errors,
 			false,
 			bwCreateHandlerFunc(observatioRequests),
+			cfg.logger,
 		)
 	}
 
@@ -178,6 +181,7 @@ func Client(conn *net.UDPConn, opts ...DialOption) *client.ClientConn {
 		cfg.errors,
 		cfg.getMID,
 		monitor,
+		cfg.logger,
 	)
 
 	go func() {

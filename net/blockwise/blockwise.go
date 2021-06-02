@@ -11,10 +11,11 @@ import (
 	kitSync "github.com/plgd-dev/kit/sync"
 
 	"github.com/dsnet/golib/memfile"
-	"github.com/patrickmn/go-cache"
 	"github.com/matrix-org/go-coap/v2/message"
 	"github.com/matrix-org/go-coap/v2/message/codes"
+	"github.com/matrix-org/go-coap/v2/shared"
 	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
+	"github.com/patrickmn/go-cache"
 )
 
 // Block Opion value is represented: https://tools.ietf.org/html/rfc7959#section-2.2
@@ -170,6 +171,7 @@ type BlockWise struct {
 	errors                      func(error)
 	autoCleanUpResponseCache    bool
 	getSendedRequestFromOutside func(token message.Token) (Message, bool)
+	logger                      shared.Logger
 
 	bwSendedRequest *kitSync.Map
 }
@@ -194,6 +196,7 @@ func NewBlockWise(
 	errors func(error),
 	autoCleanUpResponseCache bool,
 	getSendedRequestFromOutside func(token message.Token) (Message, bool),
+	logger shared.Logger,
 ) *BlockWise {
 	receivingMessagesCache := cache.New(expiration, expiration)
 	bwSendedRequest := kitSync.NewMap()
@@ -202,6 +205,9 @@ func NewBlockWise(
 	})
 	if getSendedRequestFromOutside == nil {
 		getSendedRequestFromOutside = func(token message.Token) (Message, bool) { return nil, false }
+	}
+	if logger == nil {
+		logger = &shared.NOPLogger{}
 	}
 	return &BlockWise{
 		acquireMessage:              acquireMessage,
@@ -212,6 +218,7 @@ func NewBlockWise(
 		autoCleanUpResponseCache:    autoCleanUpResponseCache,
 		getSendedRequestFromOutside: getSendedRequestFromOutside,
 		bwSendedRequest:             bwSendedRequest,
+		logger:                      logger,
 	}
 }
 
@@ -673,6 +680,7 @@ func (b *BlockWise) processReceivedMessage(w ResponseWriter, r Message, maxSzx S
 	if sendedRequest != nil {
 		defer b.releaseMessage(sendedRequest)
 	}
+	b.logger.Printf("BlockWise.processReceivedMessage SZX=%v num=%v more=%v", szx, num, more)
 	if blockType == message.Block2 && sendedRequest == nil {
 		return fmt.Errorf("cannot request body without paired request")
 	}
@@ -819,5 +827,6 @@ func (b *BlockWise) processReceivedMessage(w ResponseWriter, r Message, maxSzx S
 	}
 	sendMessage.SetOptionUint32(blockType, respBlock)
 	w.SetMessage(sendMessage)
+	b.logger.Printf("BlockWise.processReceivedMessage requesting new block SZX=%v num=%v more=%v", szx, num, more)
 	return nil
 }
