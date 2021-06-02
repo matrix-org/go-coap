@@ -574,6 +574,7 @@ func (cc *ClientConn) Process(datagram []byte) error {
 	}
 	req.SetSequence(cc.Sequence())
 	cc.activityMonitor.Notify()
+	cc.logger.Printf("ClientConn.Process %v", req.MessageID())
 	cc.goPool(func() {
 		defer cc.activityMonitor.Notify()
 		reqMid := req.MessageID()

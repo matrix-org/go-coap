@@ -491,7 +491,6 @@ func (b *BlockWise) Handle(w ResponseWriter, r Message, maxSZX SZX, maxMessageSi
 		panic("invalid maxSZX")
 	}
 	token := r.Token()
-
 	if len(token) == 0 {
 		err := b.handleReceivedMessage(w, r, maxSZX, maxMessageSize, next)
 		if err != nil {
@@ -502,7 +501,7 @@ func (b *BlockWise) Handle(w ResponseWriter, r Message, maxSZX SZX, maxMessageSi
 	}
 	tokenStr := token.String()
 	v, ok := b.sendingMessagesCache.Get(tokenStr)
-
+	b.logger.Printf("BlockWise.Handle token: %v sendMessageInCache: %v", r.Token().String(), ok)
 	if !ok {
 		err := b.handleReceivedMessage(w, r, maxSZX, maxMessageSize, next)
 		if err != nil {

@@ -14,6 +14,9 @@ work is based on [v2.4.0](https://github.com/plgd-dev/go-coap/releases/tag/v2.4.
 
 The go-coap provides servers and clients for DTLS, TCP-TLS, UDP, TCP in golang.
 
+## Unique features in fork
+- `WithLogger` to expose internals.
+
 ## Features
 * CoAP over UDP [RFC 7252][coap].
 * CoAP over TCP/TLS [RFC 8232][coap-tcp]
