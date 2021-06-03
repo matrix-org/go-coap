@@ -100,7 +100,9 @@ func Dial(target string, dtlsCfg *dtls.Config, opts ...DialOption) (*client.Clie
 }
 
 func bwAcquireMessage(ctx context.Context) blockwise.Message {
-	return pool.AcquireMessage(ctx)
+	msg := pool.AcquireMessage(ctx)
+	msg.SetType(udpMessage.Confirmable)
+	return msg
 }
 
 func bwReleaseMessage(m blockwise.Message) {
