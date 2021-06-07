@@ -173,6 +173,7 @@ func (cc *ClientConn) do(req *pool.Message) (*pool.Message, error) {
 		return nil, fmt.Errorf("cannot add token handler: %w", err)
 	}
 	defer cc.tokenHandlerContainer.Pop(token)
+	req.SetMessageID(cc.getMID())
 	err = cc.writeMessage(req)
 	if err != nil {
 		return nil, fmt.Errorf("cannot write request: %w", err)
@@ -207,7 +208,6 @@ func (cc *ClientConn) Do(req *pool.Message) (*pool.Message, error) {
 }
 
 func (cc *ClientConn) writeMessage(req *pool.Message) error {
-	req.SetMessageID(cc.getMID())
 	respChan := make(chan struct{})
 	isConfirmable := req.Type() == udpMessage.Confirmable
 	cc.logger.Printf("ClientConn.writeMessage MID=%v Confirmable=%v", req.MessageID(), isConfirmable)
@@ -270,6 +270,7 @@ func (cc *ClientConn) writeMessage(req *pool.Message) error {
 
 // WriteMessage sends an coap message.
 func (cc *ClientConn) WriteMessage(req *pool.Message) error {
+	req.SetMessageID(cc.getMID())
 	if cc.blockWise == nil {
 		return cc.writeMessage(req)
 	}
@@ -598,7 +599,7 @@ func (cc *ClientConn) Process(datagram []byte) error {
 				if !req.IsHijacked() {
 					pool.ReleaseMessage(req)
 				}
-				err = cc.session.WriteMessage(w.response)
+				err = cc.writeMessage(w.response)
 				if err != nil {
 					cc.Close()
 					cc.errors(fmt.Errorf("cannot write response: %w", err))
@@ -634,7 +635,7 @@ func (cc *ClientConn) Process(datagram []byte) error {
 				w.response.SetType(udpMessage.NonConfirmable)
 				w.response.SetMessageID(cc.getMID())
 			}
-			err := cc.session.WriteMessage(w.response)
+			err := cc.writeMessage(w.response)
 			if err != nil {
 				cc.Close()
 				cc.errors(fmt.Errorf("cannot write response: %w", err))
@@ -645,7 +646,7 @@ func (cc *ClientConn) Process(datagram []byte) error {
 			w.response.SetCode(codes.Empty)
 			w.response.SetType(udpMessage.Acknowledgement)
 			w.response.SetMessageID(reqMid)
-			err := cc.session.WriteMessage(w.response)
+			err := cc.writeMessage(w.response)
 			if err != nil {
 				cc.Close()
 				cc.errors(fmt.Errorf("cannot write ack reponse: %w", err))

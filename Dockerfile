@@ -5,7 +5,7 @@ RUN git clone https://github.com/udhos/update-golang.git \
     && cd update-golang \
     && ./update-golang.sh \
     && ln -s /usr/local/go/bin/go /usr/bin/go
-WORKDIR $GOPATH/src/github.com/plgd-dev/go-coap
+WORKDIR $GOPATH/src/github.com/matrix-org/go-coap
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
