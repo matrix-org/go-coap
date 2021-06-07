@@ -592,22 +592,24 @@ func (cc *ClientConn) Process(datagram []byte) error {
 		origResp.SetType(req.Type())
 		w := NewResponseWriter(origResp, cc, req.Options())
 
-		if ok, err := cc.getResponseFromCache(req.MessageID(), w.response); ok {
-			defer pool.ReleaseMessage(w.response)
-			if !req.IsHijacked() {
-				pool.ReleaseMessage(req)
-			}
-			err = cc.session.WriteMessage(w.response)
-			if err != nil {
+		if req.Type() != udpMessage.Acknowledgement {
+			if ok, err := cc.getResponseFromCache(req.MessageID(), w.response); ok {
+				defer pool.ReleaseMessage(w.response)
+				if !req.IsHijacked() {
+					pool.ReleaseMessage(req)
+				}
+				err = cc.session.WriteMessage(w.response)
+				if err != nil {
+					cc.Close()
+					cc.errors(fmt.Errorf("cannot write response: %w", err))
+					return
+				}
+				return
+			} else if err != nil {
 				cc.Close()
-				cc.errors(fmt.Errorf("cannot write response: %w", err))
+				cc.errors(fmt.Errorf("cannot unmarshal response from cache: %w", err))
 				return
 			}
-			return
-		} else if err != nil {
-			cc.Close()
-			cc.errors(fmt.Errorf("cannot unmarshal response from cache: %w", err))
-			return
 		}
 
 		reqType := req.Type()
@@ -625,6 +627,9 @@ func (cc *ClientConn) Process(datagram []byte) error {
 			case reqType == udpMessage.Confirmable:
 				w.response.SetType(udpMessage.Acknowledgement)
 				w.response.SetMessageID(reqMid)
+			case w.response.HasOption(message.Block2):
+				w.response.SetType(udpMessage.Confirmable)
+				w.response.SetMessageID(cc.getMID())
 			default:
 				w.response.SetType(udpMessage.NonConfirmable)
 				w.response.SetMessageID(cc.getMID())
