@@ -510,7 +510,10 @@ func (b *BlockWise) Handle(w ResponseWriter, r Message, maxSZX SZX, maxMessageSi
 		}
 		return
 	}
-	more, err := b.continueSendingMessage(w, r, maxSZX, maxMessageSize, v.(*messageGuard))
+	msgGuard := v.(*messageGuard)
+	// refresh cache expiration
+	b.sendingMessagesCache.Set(tokenStr, msgGuard, cache.DefaultExpiration)
+	more, err := b.continueSendingMessage(w, r, maxSZX, maxMessageSize, msgGuard)
 	if err != nil {
 		b.sendingMessagesCache.Delete(tokenStr)
 		b.errors(fmt.Errorf("continueSendingMessage(%v): %w", r, err))
@@ -730,6 +733,8 @@ func (b *BlockWise) processReceivedMessage(w ResponseWriter, r Message, maxSzx S
 		}
 	} else {
 		msgGuard = cachedReceivedMessageGuard.(*messageGuard)
+		// refresh cache expiration
+		b.receivingMessagesCache.Set(tokenStr, msgGuard, cache.DefaultExpiration)
 		msgGuard.Lock()
 		defer msgGuard.Unlock()
 	}
