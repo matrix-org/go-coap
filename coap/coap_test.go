@@ -1,14 +1,17 @@
 package coap
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"testing"
 	"time"
 
 	"github.com/matrix-org/go-coap/v2/message"
 	"github.com/matrix-org/go-coap/v2/message/codes"
+	"github.com/matrix-org/go-coap/v2/udp/client"
 	udpMessage "github.com/matrix-org/go-coap/v2/udp/message"
 	"github.com/matrix-org/go-coap/v2/udp/message/pool"
 )
@@ -28,13 +31,11 @@ func (a *customAddr) String() string {
 type customPacketConn struct {
 	closed    bool
 	reads     chan []byte
-	writes    map[string][][]byte
 	onReceive func([]byte) []byte
 }
 
 func newCustomPacketConn(onReceive func([]byte) []byte) *customPacketConn {
 	return &customPacketConn{
-		writes:    make(map[string][][]byte),
 		reads:     make(chan []byte),
 		onReceive: onReceive,
 	}
@@ -64,7 +65,6 @@ func (c *customPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) 
 // see SetDeadline and SetWriteDeadline.
 // On packet-oriented connections, write timeouts are rare.
 func (c *customPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	c.writes[addr.String()] = append(c.writes[addr.String()], p)
 	output := c.onReceive(p)
 	if output != nil {
 		c.reads <- output
@@ -113,6 +113,7 @@ func (c *customPacketConn) SetReadDeadline(t time.Time) error { return nil }
 // A zero value for t means WriteTo will not time out.
 func (c *customPacketConn) SetWriteDeadline(t time.Time) error { return nil }
 
+// Tests that you can send CoAP pings to a target using an arbitrary net.PacketConn
 func TestCoapPing(t *testing.T) {
 	cfg := NewConfig(WithErrors(func(err error) {
 		t.Fatalf("CoAP error: %s", err)
@@ -149,4 +150,132 @@ func TestCoapPing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ping failed: %s", err)
 	}
+}
+
+// channelPacketConn is a net.PacketConn using channels. It can only talk to one remote addr marked
+// by 'raddr'.
+type channelPacketConn struct {
+	reads  chan []byte
+	writes chan []byte
+	laddr  net.Addr
+	raddr  net.Addr
+}
+
+// ReadFrom reads a packet from the connection,
+// copying the payload into p. It returns the number of
+// bytes copied into p and the return address that
+// was on the packet.
+// It returns the number of bytes read (0 <= n <= len(p))
+// and any error encountered. Callers should always process
+// the n > 0 bytes returned before considering the error err.
+// ReadFrom can be made to time out and return
+// an Error with Timeout() == true after a fixed time limit;
+// see SetDeadline and SetReadDeadline.
+func (c *channelPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
+	for data := range c.reads {
+		n = copy(p, data)
+		return n, c.raddr, nil
+	}
+	return 0, nil, fmt.Errorf("read on closed chan: %+v", c.reads)
+}
+
+// WriteTo writes a packet with payload p to addr.
+// WriteTo can be made to time out and return
+// an Error with Timeout() == true after a fixed time limit;
+// see SetDeadline and SetWriteDeadline.
+// On packet-oriented connections, write timeouts are rare.
+func (c *channelPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
+	if addr.String() != c.raddr.String() {
+		return 0, fmt.Errorf("unexpected raddr: got %s want %s", addr.String(), c.raddr.String())
+	}
+	c.writes <- p
+	return len(p), nil
+}
+func (c *channelPacketConn) SetDeadline(t time.Time) error      { return nil }
+func (c *channelPacketConn) SetReadDeadline(t time.Time) error  { return nil }
+func (c *channelPacketConn) SetWriteDeadline(t time.Time) error { return nil }
+func (c *channelPacketConn) Close() error {
+	close(c.reads)
+	close(c.writes)
+	return nil
+}
+func (c *channelPacketConn) LocalAddr() net.Addr {
+	return c.laddr
+}
+
+// Test that blockwise xfer works between a client/server using a custom net.PacketConn as the transport
+func TestCoapBlockwiseClientServer(t *testing.T) {
+	bigPayload := make([]byte, 1024*1024*2) // 2MB
+	for i := range bigPayload {
+		bigPayload[i] = byte(i % 256)
+	}
+	clientToServerCh := make(chan []byte, 10)
+	serverToClientCh := make(chan []byte, 10)
+	clientAddr := customAddr{"coap", "client"}
+	serverAddr := customAddr{"coap", "server"}
+
+	clientToServerPipe := &channelPacketConn{
+		reads:  serverToClientCh,
+		writes: clientToServerCh,
+		laddr:  &clientAddr,
+		raddr:  &serverAddr,
+	}
+	serverToClientPipe := &channelPacketConn{
+		reads:  clientToServerCh,
+		writes: serverToClientCh,
+		laddr:  &serverAddr,
+		raddr:  &clientAddr,
+	}
+
+	// blockwise xfer is enabled by default
+	clientCfg := NewConfig(WithErrors(func(err error) {
+		t.Fatalf("CoAP error: %s", err)
+	}))
+	serverCfg := NewConfig(WithErrors(func(err error) {
+		t.Fatalf("CoAP error: %s", err)
+	}), WithHandlerFunc(func(rw *client.ResponseWriter, m *pool.Message) {
+		path, _ := m.Options().Path()
+		fmt.Println(path)
+		if path == "give/me/data" {
+			rw.SetResponse(codes.Content, message.TextPlain, bytes.NewReader(bigPayload))
+		}
+	}))
+
+	clientsConn := clientCfg.NewWithPacketConn(clientToServerPipe, &serverAddr)
+	serversConn := serverCfg.NewWithPacketConn(serverToClientPipe, &clientAddr)
+
+	go func() {
+		if err := clientsConn.Run(); err != nil {
+			t.Errorf("failed to run client conn: %s", err)
+		}
+	}()
+	go func() {
+		if err := serversConn.Run(); err != nil {
+			t.Errorf("failed to run server conn: %s", err)
+		}
+	}()
+
+	// Do pings to make sure the pipes are configured correctly
+	err := clientsConn.Ping(context.Background())
+	if err != nil {
+		t.Fatalf("Ping from client to server failed: %s", err)
+	}
+	err = serversConn.Ping(context.Background())
+	if err != nil {
+		t.Fatalf("Ping from server to client failed: %s", err)
+	}
+
+	// ask the server for the big payload
+	resp, err := clientsConn.Get(context.Background(), "/give/me/data")
+	if err != nil {
+		t.Fatalf("clientsConn.Get failed: %s", err)
+	}
+	gotPayload, err := ioutil.ReadAll(resp.Body())
+	if err != nil {
+		t.Fatalf("Failed to read response body: %s", err)
+	}
+	if !bytes.Equal(bigPayload, gotPayload) {
+		t.Fatalf("Payload received mismatch, got %d bytes, want %d bytes", len(gotPayload), len(bigPayload))
+	}
+
 }
