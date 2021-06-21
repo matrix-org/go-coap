@@ -118,7 +118,6 @@ func (s *Session) Run(cc *client.ClientConn) (err error) {
 			return err
 		}
 		buf = buf[:n]
-		fmt.Printf("Processing data: %x\n", buf)
 		err = cc.Process(buf)
 		if err != nil {
 			return err
