@@ -71,6 +71,8 @@ func (c *multiplexPacketConn) LocalAddr() net.Addr {
 }
 
 // Test that the server config can serve multiple clients with the same pconn without getting confused.
+// Does this by sending packets to the server from different raddrs and makes sure that at different
+// levels of the coap stack we still have the right raddr
 func TestCoapServer(t *testing.T) {
 	pconn := &multiplexPacketConn{
 		laddr:  &customAddr{network: "test", str: "SERVER"},
