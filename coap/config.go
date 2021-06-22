@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/matrix-org/go-coap/v2/message"
@@ -38,6 +39,7 @@ type Config struct {
 	getMID                         func() uint16
 	closeSocket                    bool
 	createInactivityMonitor        func() inactivity.Monitor
+	onNewClientConn                func(cc *client.ClientConn)
 	logger                         shared.Logger
 }
 
@@ -68,7 +70,17 @@ func bwCreateHandlerFunc(observatioRequests *kitSync.Map) func(token message.Tok
 	}
 }
 
-func (c *Config) NewWithPacketConn(pconn net.PacketConn, raddr net.Addr) *client.ClientConn {
+func (c *Config) NewServer(pconn net.PacketConn) *Server {
+	return &Server{
+		cfg:             c,
+		pconn:           pconn,
+		connsMu:         &sync.Mutex{},
+		conns:           make(map[string]*client.ClientConn),
+		onNewClientConn: c.onNewClientConn,
+	}
+}
+
+func (c *Config) NewSessionWithPacketConn(pconn net.PacketConn, raddr net.Addr) *client.ClientConn {
 	return c.NewWithSession(NewSession(
 		context.Background(), pconn, raddr, c.maxMessageSize, c.closeSocket,
 	))
@@ -166,6 +178,12 @@ func WithErrors(errors func(error)) ConfigOpt {
 func WithGoPool(goPool func(func()) error) ConfigOpt {
 	return func(c *Config) {
 		c.goPool = goPool
+	}
+}
+
+func WithOnNewClientConn(fn func(cc *client.ClientConn)) ConfigOpt {
+	return func(c *Config) {
+		c.onNewClientConn = fn
 	}
 }
 

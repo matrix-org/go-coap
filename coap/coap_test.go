@@ -139,7 +139,7 @@ func TestCoapPing(t *testing.T) {
 		fmt.Printf("responding %x\n", output)
 		return output
 	})
-	conn := cfg.NewWithPacketConn(pconn, raddr)
+	conn := cfg.NewSessionWithPacketConn(pconn, raddr)
 	go func() {
 		err := conn.Run()
 		if err != nil {
@@ -241,8 +241,8 @@ func TestCoapBlockwiseClientServer(t *testing.T) {
 		}
 	}))
 
-	clientsConn := clientCfg.NewWithPacketConn(clientToServerPipe, &serverAddr)
-	serversConn := serverCfg.NewWithPacketConn(serverToClientPipe, &clientAddr)
+	clientsConn := clientCfg.NewSessionWithPacketConn(clientToServerPipe, &serverAddr)
+	serversConn := serverCfg.NewSessionWithPacketConn(serverToClientPipe, &clientAddr)
 
 	go func() {
 		if err := clientsConn.Run(); err != nil {
@@ -277,5 +277,4 @@ func TestCoapBlockwiseClientServer(t *testing.T) {
 	if !bytes.Equal(bigPayload, gotPayload) {
 		t.Fatalf("Payload received mismatch, got %d bytes, want %d bytes", len(gotPayload), len(bigPayload))
 	}
-
 }

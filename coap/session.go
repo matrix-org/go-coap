@@ -13,6 +13,8 @@ import (
 
 type EventFunc = func()
 
+// Session represents a coap connection between two addresses.
+// Cannot be used if you don't know an addr, instead use Server
 type Session struct {
 	connection     net.PacketConn
 	raddr          net.Addr
